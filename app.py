@@ -1,10 +1,10 @@
 
-
 import streamlit as st
 import time
 from datetime import datetime, timedelta
 import yfinance as yf
 import ta
+import pandas as pd
 
 # ================= PAGE CONFIG =================
 st.set_page_config(page_title="Malagna", layout="wide")
@@ -42,14 +42,19 @@ CURRENCY = [
     "EUR/USD","GBP/USD","USD/JPY","USD/CHF","AUD/USD","USD/CAD","NZD/USD",
     "EUR/JPY","GBP/JPY","EUR/GBP","EUR/CAD","EUR/SEK","EUR/CHF","EUR/HUF",
     "USD/CNY","USD/HKD","USD/SGD","USD/INR","USD/MXN","USD/PHP",
-    "USD/IDR","USD/THB","USD/MYR","USD/ZAR","USD/RUB",
+    "USD/IDR","USD/THB","USD/MYR","USD/ZAR","USD/RUB"
+]
+
+OTC = [
     "EUR/USD OTC","GBP/USD OTC","USD/JPY OTC","AUD/USD OTC","USD/CHF OTC"
 ]
 
 CRYPTO = ["BTC/USD","ETH/USD","SOL/USD","XRP/USD","DOGE/USD"]
 STOCKS = ["AAPL","MSFT","AMZN","NVDA","TSLA"]
 
+# ================= RELIABILITY =================
 RELIABILITY = {k: "Medium" for k in CURRENCY}
+RELIABILITY.update({k: "Medium" for k in OTC})
 RELIABILITY.update({
     "EUR/USD":"High","GBP/USD":"High","AUD/USD":"High",
     "BTC/USD":"High","ETH/USD":"High",
@@ -65,14 +70,21 @@ YF_SYMBOLS = {
     "USD/CNY":"CNY=X","USD/HKD":"HKD=X","USD/SGD":"SGD=X","USD/INR":"INR=X",
     "USD/MXN":"MXN=X","USD/PHP":"PHP=X","USD/IDR":"IDR=X","USD/THB":"THB=X",
     "USD/MYR":"MYR=X","USD/ZAR":"ZAR=X","USD/RUB":"RUB=X",
+
     "EUR/USD OTC":"EURUSD=X","GBP/USD OTC":"GBPUSD=X","USD/JPY OTC":"JPY=X",
     "AUD/USD OTC":"AUDUSD=X","USD/CHF OTC":"CHF=X",
+
     "BTC/USD":"BTC-USD","ETH/USD":"ETH-USD","SOL/USD":"SOL-USD",
     "XRP/USD":"XRP-USD","DOGE/USD":"DOGE-USD",
+
     "AAPL":"AAPL","MSFT":"MSFT","AMZN":"AMZN","NVDA":"NVDA","TSLA":"TSLA"
 }
 
-TV_SYMBOLS = {k: f"FX:{k.replace('/','')}" for k in CURRENCY}
+TV_SYMBOLS = {}
+for pair in CURRENCY:
+    TV_SYMBOLS[pair] = f"FX:{pair.replace('/','')}"
+for pair in OTC:
+    TV_SYMBOLS[pair] = f"FX:{pair.replace('/','').replace(' OTC','')}"
 TV_SYMBOLS.update({
     "BTC/USD":"BINANCE:BTCUSDT","ETH/USD":"BINANCE:ETHUSDT",
     "SOL/USD":"BINANCE:SOLUSDT","XRP/USD":"BINANCE:XRPUSDT","DOGE/USD":"BINANCE:DOGEUSDT",
@@ -83,8 +95,20 @@ TV_SYMBOLS.update({
 # ================= ASSET SELECTION =================
 st.markdown("<div class='block'><h3>Select Asset</h3></div>", unsafe_allow_html=True)
 
-asset_type = st.radio("Asset Type", ["Currency","Crypto","Stocks"], horizontal=True)
-asset = st.selectbox("Asset", CURRENCY if asset_type=="Currency" else CRYPTO if asset_type=="Crypto" else STOCKS)
+asset_type = st.radio(
+    "Asset Type",
+    ["Currency","OTC","Crypto","Stocks"],
+    horizontal=True
+)
+
+if asset_type == "Currency":
+    asset = st.selectbox("Asset", CURRENCY)
+elif asset_type == "OTC":
+    asset = st.selectbox("Asset", OTC)
+elif asset_type == "Crypto":
+    asset = st.selectbox("Asset", CRYPTO)
+else:
+    asset = st.selectbox("Asset", STOCKS)
 
 reliability = RELIABILITY.get(asset,"Medium")
 symbol = YF_SYMBOLS.get(asset)
@@ -103,14 +127,46 @@ if remaining <= 0:
 # ================= DATA =================
 data = yf.download(symbol, interval="1m", period="2d", progress=False)
 
+market_state = "NORMAL"
+wick_confirm = False
+
 if data.empty or len(data) < 200:
     signal, trend, price, rsi, confidence, accuracy = "NO TRADE","NEUTRAL",0,0,50,50
 else:
     close = data["Close"]
+    open_ = data["Open"]
+    high = data["High"]
+    low = data["Low"]
+
     if hasattr(close,"columns"):
         close = close.iloc[:,0]
+        open_ = open_.iloc[:,0]
+        high = high.iloc[:,0]
+        low = low.iloc[:,0]
+
     close = close.astype(float)
 
+    # ===== OTC MARKET STATE =====
+    if asset_type == "OTC":
+        bb = ta.volatility.BollingerBands(close, window=20, window_dev=2)
+        bb_high = bb.bollinger_hband()
+        bb_low = bb.bollinger_lband()
+        bb_width = (bb_high - bb_low).iloc[-1]
+        avg_price = close.iloc[-20:].mean()
+        market_state = "RANGING" if bb_width / avg_price < 0.003 else "BLOCKED"
+
+    # ===== WICK CONFIRMATION (NEW) =====
+    body = abs(close.iloc[-2] - open_.iloc[-2])
+    upper_wick = high.iloc[-2] - max(close.iloc[-2], open_.iloc[-2])
+    lower_wick = min(close.iloc[-2], open_.iloc[-2]) - low.iloc[-2]
+
+    if body > 0:
+        if upper_wick >= body * 1.5:
+            wick_confirm = "SELL"
+        elif lower_wick >= body * 1.5:
+            wick_confirm = "BUY"
+
+    # ===== ORIGINAL LOGIC =====
     ema20 = ta.trend.ema_indicator(close,20)
     ema50 = ta.trend.ema_indicator(close,50)
     ema200 = ta.trend.ema_indicator(close,200)
@@ -129,12 +185,25 @@ else:
         trend="NEUTRAL"
 
     score+=15
-    if 40<=rsi<=60: score+=20
-    if macd.iloc[-1]>macd.iloc[-2]: score+=20
+    if 40 <= rsi <= 60: score+=20
+    if macd.iloc[-1] > macd.iloc[-2]: score+=20
 
     signal = "BUY" if trend=="BULLISH" and score>=70 else "SELL" if trend=="BEARISH" and score>=70 else "NO TRADE"
-    confidence=min(100,score)
-    accuracy=min(100,score+10)
+
+    # ===== OTC SIGNAL GATE =====
+    if asset_type == "OTC" and market_state == "BLOCKED":
+        signal = "NO TRADE"
+
+    # ===== OTC MEAN-REVERSION + WICK CONFIRMATION =====
+    if asset_type == "OTC" and market_state == "RANGING":
+        last_price = close.iloc[-1]
+        if rsi <= 30 and last_price <= bb_low.iloc[-1] and wick_confirm == "BUY":
+            signal = "BUY"
+        elif rsi >= 70 and last_price >= bb_high.iloc[-1] and wick_confirm == "SELL":
+            signal = "SELL"
+
+    confidence = min(100,score)
+    accuracy = min(100,score+10)
 
 signal_class = "signal-buy" if signal=="BUY" else "signal-sell" if signal=="SELL" else "signal-wait"
 
@@ -150,6 +219,7 @@ st.markdown(f"""
 <div class="block center">
 <div class="{signal_class}">{signal}</div>
 <div class="metric">{asset} • <span class="{reliability.lower()}">{reliability}</span></div>
+<div class="metric">Market State: <b>{market_state}</b></div>
 <div class="metric">Strength: {confidence}% | Accuracy: {accuracy}%</div>
 <div class="bar"><div class="fill-green" style="width:{confidence}%"></div></div><br>
 <div class="bar"><div class="fill-blue" style="width:{accuracy}%"></div></div>
@@ -161,7 +231,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ================= SIDE PANELS (RESTORED) =================
+# ================= SIDE PANELS =================
 c1, c2 = st.columns(2)
 
 with c1:
@@ -188,3 +258,4 @@ with c2:
 
 time.sleep(1)
 st.rerun()
+
