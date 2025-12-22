@@ -1,3 +1,23 @@
+import streamlit as st
+
+# ================= SIMPLE ACCESS CONTROL =================
+APP_PASSWORD = "malagna2025"  # change this
+
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    st.title("🔒 Malagna Access")
+    password = st.text_input("Enter access password", type="password")
+
+    if st.button("Login"):
+        if password == APP_PASSWORD:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Incorrect password")
+
+    st.stop()
 
 import streamlit as st
 import time
@@ -258,4 +278,5 @@ with c2:
 
 time.sleep(1)
 st.rerun()
+
 
