@@ -278,5 +278,139 @@ with c2:
 
 time.sleep(1)
 st.rerun()
+# =========================================================
+# 🔥 MALAGNA OTC SIGNAL ENGINE (ADD-ON MODULE)
+# =========================================================
+
+st.markdown("---")
+st.markdown("## 📊 OTC Signal Engine (Beta)")
+
+from datetime import datetime, timedelta
+import statistics
+
+# -------- SETTINGS ----------
+confidence_threshold = st.slider(
+    "Minimum Confidence (%) – OTC",
+    70, 95, 80
+)
+
+pair = st.selectbox(
+    "OTC Pair",
+    ["AUD/USD OTC", "EUR/USD OTC", "GBP/USD OTC", "USD/JPY OTC"],
+    key="otc_pair"
+)
+
+support = st.number_input(
+    "Support Level (OTC)",
+    value=0.6500,
+    step=0.0001,
+    format="%.5f"
+)
+
+resistance = st.number_input(
+    "Resistance Level (OTC)",
+    value=0.6550,
+    step=0.0001,
+    format="%.5f"
+)
+
+# -------- MOCK CANDLES (TEMPORARY) ----------
+candles = [
+    {"open": 0.6531, "high": 0.6538, "low": 0.6529, "close": 0.6535},
+    {"open": 0.6535, "high": 0.6542, "low": 0.6532, "close": 0.6539},
+    {"open": 0.6539, "high": 0.6545, "low": 0.6536, "close": 0.6541},
+    {"open": 0.6541, "high": 0.6548, "low": 0.6538, "close": 0.6540},
+    {"open": 0.6540, "high": 0.6549, "low": 0.6537, "close": 0.6536},
+    {"open": 0.6536, "high": 0.6547, "low": 0.6534, "close": 0.6533},
+    {"open": 0.6533, "high": 0.6542, "low": 0.6530, "close": 0.6531},
+    {"open": 0.6531, "high": 0.6540, "low": 0.6528, "close": 0.6529},
+    {"open": 0.6529, "high": 0.6537, "low": 0.6525, "close": 0.6526},
+    {"open": 0.6526, "high": 0.6532, "low": 0.6521, "close": 0.6523},
+    {"open": 0.6523, "high": 0.6530, "low": 0.6519, "close": 0.6520},
+    {"open": 0.6520, "high": 0.6527, "low": 0.6516, "close": 0.6518},
+    {"open": 0.6518, "high": 0.6525, "low": 0.6514, "close": 0.6516},
+    {"open": 0.6516, "high": 0.6522, "low": 0.6512, "close": 0.6514},
+    {"open": 0.6514, "high": 0.6520, "low": 0.6510, "close": 0.6512},
+    {"open": 0.6512, "high": 0.6518, "low": 0.6509, "close": 0.6510},
+]
+
+# -------- INDICATORS ----------
+def rsi(candles, period=14):
+    closes = [c["close"] for c in candles]
+    gains, losses = [], []
+    for i in range(1, period + 1):
+        diff = closes[-i] - closes[-i - 1]
+        gains.append(max(diff, 0))
+        losses.append(abs(min(diff, 0)))
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+    if avg_loss == 0:
+        return 100
+    rs = avg_gain / avg_loss
+    return round(100 - (100 / (1 + rs)), 2)
+
+def bollinger(candles, period=20, dev=2):
+    closes = [c["close"] for c in candles[-period:]]
+    sma = statistics.mean(closes)
+    std = statistics.stdev(closes)
+    return sma - dev * std, sma + dev * std
+
+# -------- ENGINE ----------
+def otc_engine(candles, support, resistance):
+    buy = sell = 0
+    reasons = []
+
+    price = candles[-1]["close"]
+    buffer = (resistance - support) * 0.1
+
+    if price >= resistance - buffer:
+        sell += 30; reasons.append("Price near resistance")
+    elif price <= support + buffer:
+        buy += 30; reasons.append("Price near support")
+
+    r = rsi(candles)
+    if r >= 70:
+        sell += 20; reasons.append(f"RSI overbought ({r})")
+    elif r <= 30:
+        buy += 20; reasons.append(f"RSI oversold ({r})")
+
+    lower, upper = bollinger(candles)
+    if price >= upper:
+        sell += 20; reasons.append("Upper Bollinger Band touched")
+    elif price <= lower:
+        buy += 20; reasons.append("Lower Bollinger Band touched")
+
+    confidence = max(buy, sell)
+    if confidence < confidence_threshold:
+        return "NO_TRADE", confidence, reasons
+
+    return ("BUY" if buy > sell else "SELL"), confidence, reasons
+
+# -------- RUN ----------
+if st.button("🔍 Analyse OTC Market"):
+    signal, confidence, reasons = otc_engine(candles, support, resistance)
+
+    if signal == "NO_TRADE":
+        st.warning("⚪ NO TRADE — conditions not strong enough")
+    else:
+        now = datetime.now()
+        entry = now.replace(second=0, microsecond=0) + timedelta(minutes=1)
+        expiry = entry + timedelta(minutes=1)
+        arrow = "⬆️" if signal == "BUY" else "⬇️"
+
+        st.success("✅ OTC SIGNAL")
+        st.code(f"""
+PAIR: {pair}
+TIMEFRAME: 1M
+SIGNAL: {signal} {arrow}
+CONFIDENCE: {confidence}%
+ENTRY: {entry.strftime('%H:%M')}
+EXPIRY: {expiry.strftime('%H:%M')}
+""".strip())
+
+        with st.expander("Why this signal"):
+            for r in reasons:
+                st.write("•", r)
+
 
 
