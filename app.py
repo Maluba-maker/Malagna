@@ -8,13 +8,13 @@ from datetime import datetime, timedelta
 # =============================
 # PAGE CONFIG
 # =============================
-st.set_page_config(page_title="Maluz Signal Engine", layout="centered")
+st.set_page_config(page_title="Malagna Signal Engine", layout="centered")
 
 # =============================
 # BRANDING
 # =============================
-st.markdown("## 🔹 Maluz Signal Engine")
-st.caption("Maluz – a rule-based OTC market analysis.")
+st.markdown("## 🔹 Malagna Signal Engine")
+st.caption("Malagna – a rule-based OTC market analysis.")
 
 # =============================
 # PASSWORD PROTECTION
@@ -244,6 +244,8 @@ EXPIRY: {expiry.strftime('%H:%M')}
             st.write("•", w)
     else:
         st.success("✅ Market behaviour appears normal")
+
+
 
 
 
