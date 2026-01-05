@@ -14,7 +14,7 @@ st.set_page_config(page_title="Malagna Signal Engine", layout="centered")
 # BRANDING
 # =============================
 st.markdown("## 🔹 Malagna Signal Engine")
-st.caption("Malagna – a rule-based OTC market analysis.")
+st.caption("Malagna – a Pocket-AI style OTC market analysis.")
 
 # =============================
 # PASSWORD PROTECTION
@@ -140,54 +140,58 @@ def market_behaviour_warning(gray):
     return flags
 
 # =============================
-# POCKET-AI MARKET PERMISSION ENGINE
+# POCKET-AI MARKET PERMISSION
 # =============================
 def market_permission(gray):
     h, w = gray.shape
 
-    recent = gray[int(h*0.55):int(h*0.75), :]
-    if np.std(recent) < 16:
-        return False, "Market compressed / overlapping candles"
+    if np.std(gray[int(h*0.55):int(h*0.75), :]) < 16:
+        return False, "Market compressed"
 
-    left_vol = np.std(gray[:, :w//3])
-    right_vol = np.std(gray[:, w//3:])
-    if abs(right_vol - left_vol) > 20:
-        return False, "Volatility transition detected"
+    if abs(np.std(gray[:, :w//3]) - np.std(gray[:, w//3:])) > 20:
+        return False, "Volatility transition"
 
-    candle_zone = gray[int(h*0.6):int(h*0.75), int(w*0.7):]
-    if np.std(candle_zone) > 40:
-        return False, "Early candle impulse (trap risk)"
+    if np.std(gray[int(h*0.6):int(h*0.75), int(w*0.7):]) > 40:
+        return False, "Early candle impulse"
 
     return True, "Market tradable"
 
 # =============================
-# 25-PAIR RULE ENGINE
+# CORE POCKET-AI DECISION ENGINE
 # =============================
-def evaluate_pairs(structure, sr, candle, trend):
-    fired = []
+def pocket_ai_decision(structure, sr, candle, trend):
+    confidence = 0
+    reason = "WAIT"
 
-    if structure == "BULLISH" and candle == "IMPULSE":
-        fired.append(("BUY", 88, "Bullish trend acceleration"))
-    if structure == "BULLISH" and trend == "UPTREND" and candle == "REJECTION":
-        fired.append(("BUY", 85, "Pullback in uptrend"))
-    if structure == "BEARISH" and candle == "IMPULSE":
-        fired.append(("SELL", 88, "Bearish trend acceleration"))
-    if structure == "BEARISH" and trend == "DOWNTREND" and candle == "REJECTION":
-        fired.append(("SELL", 85, "Pullback in downtrend"))
+    # 1️⃣ Liquidity Trap (Highest Priority)
+    if candle == "IMPULSE" and sr["support"] and structure != "BEARISH":
+        return "BUY", "Liquidity sweep & rejection (Trap)", 92
+    if candle == "IMPULSE" and sr["resistance"] and structure != "BULLISH":
+        return "SELL", "Liquidity sweep & rejection (Trap)", 92
 
+    # 2️⃣ Trend Exhaustion
+    if candle == "REJECTION" and structure == "BULLISH" and trend == "UPTREND":
+        return "SELL", "Uptrend exhaustion", 88
+    if candle == "REJECTION" and structure == "BEARISH" and trend == "DOWNTREND":
+        return "BUY", "Downtrend exhaustion", 88
+
+    # 3️⃣ Pullback Continuation
+    if trend == "UPTREND" and candle == "REJECTION" and structure == "BULLISH":
+        return "BUY", "Pullback continuation", 86
+    if trend == "DOWNTREND" and candle == "REJECTION" and structure == "BEARISH":
+        return "SELL", "Pullback continuation", 86
+
+    # 4️⃣ Support / Resistance Reaction
     if sr["support"] and candle == "REJECTION":
-        fired.append(("BUY", 87, "Support rejection"))
+        return "BUY", "Support reaction", 84
     if sr["resistance"] and candle == "REJECTION":
-        fired.append(("SELL", 87, "Resistance rejection"))
+        return "SELL", "Resistance reaction", 84
 
-    if candle == "IMPULSE" and structure == "RANGE":
-        fired.append(("SELL", 85, "Range spike fade"))
+    # 5️⃣ Range Fade (Lowest Priority)
+    if structure == "RANGE" and candle == "IMPULSE":
+        return "SELL", "Range spike fade", 80
 
-    if not fired:
-        return "WAIT", "No valid setup", 0, None
-
-    fired.sort(key=lambda x: x[1], reverse=True)
-    return fired[0][0], fired[0][2], fired[0][1], None
+    return "WAIT", reason, confidence
 
 # =============================
 # EXECUTION
@@ -202,7 +206,7 @@ if image is not None and st.button("🔍 Analyse Market"):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
     if not market_quality_ok(gray):
-        signal, reason, conf = "WAIT", "Market quality poor", 0
+        signal, reason, conf = "WAIT", "Poor market quality", 0
     else:
         allowed, permission_reason = market_permission(gray)
 
@@ -214,7 +218,7 @@ if image is not None and st.button("🔍 Analyse Market"):
             candle = analyse_candle_behaviour(gray)
             trend = confirm_trend(gray)
 
-            signal, reason, conf, _ = evaluate_pairs(structure, sr, candle, trend)
+            signal, reason, conf = pocket_ai_decision(structure, sr, candle, trend)
 
             if conf < 80:
                 signal, reason = "WAIT", "Low confidence setup"
@@ -244,6 +248,7 @@ EXPIRY: {expiry.strftime('%H:%M')}
             st.write("•", w)
     else:
         st.success("✅ Market behaviour appears normal")
+
 
 
 
