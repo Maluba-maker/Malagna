@@ -1,4 +1,6 @@
 streamlit
-yfinance
-ta
-pandas
+numpy
+pillow
+opencv-python-headless
+mss
+openai
