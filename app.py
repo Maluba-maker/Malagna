@@ -140,7 +140,7 @@ def market_behaviour_warning(gray):
     return flags
 
 # =============================
-# POCKET-AI MARKET PERMISSION
+# MARKET PERMISSION (Layer 5 rules)
 # =============================
 def market_permission(gray):
     h, w = gray.shape
@@ -157,41 +157,60 @@ def market_permission(gray):
     return True, "Market tradable"
 
 # =============================
-# CORE POCKET-AI DECISION ENGINE
+# 🔵 25-RULE CORE ENGINE
 # =============================
-def pocket_ai_decision(structure, sr, candle, trend):
-    confidence = 0
-    reason = "WAIT"
+def malagna_decision(structure, sr, candle, trend, gray):
+    buy_score = 0
+    sell_score = 0
+    reasons = []
 
-    # 1️⃣ Liquidity Trap (Highest Priority)
-    if candle == "IMPULSE" and sr["support"] and structure != "BEARISH":
-        return "BUY", "Liquidity sweep & rejection (Trap)", 92
+    # ===== LAYER 1: Candle Truth (Rules 1–5)
+    if candle == "IMPULSE":
+        buy_score += 2
+        sell_score += 2
+    elif candle == "REJECTION":
+        buy_score += 1
+        sell_score += 1
+
+    # ===== LAYER 2: Structure & Location (Rules 6–10)
+    if structure == "BULLISH":
+        buy_score += 2
+    elif structure == "BEARISH":
+        sell_score += 2
+
+    if sr["support"]:
+        buy_score += 2
+    if sr["resistance"]:
+        sell_score += 2
+
+    # ===== LAYER 3: Momentum & Trend (Rules 11–15)
+    if trend == "UPTREND":
+        buy_score += 2
+    elif trend == "DOWNTREND":
+        sell_score += 2
+
+    # ===== LAYER 4: Liquidity & Manipulation (Rules 16–20)
+    manipulation = False
     if candle == "IMPULSE" and sr["resistance"] and structure != "BULLISH":
-        return "SELL", "Liquidity sweep & rejection (Trap)", 92
+        manipulation = True
+        reasons.append("Upper liquidity sweep")
+    if candle == "IMPULSE" and sr["support"] and structure != "BEARISH":
+        manipulation = True
+        reasons.append("Lower liquidity sweep")
 
-    # 2️⃣ Trend Exhaustion
-    if candle == "REJECTION" and structure == "BULLISH" and trend == "UPTREND":
-        return "SELL", "Uptrend exhaustion", 88
-    if candle == "REJECTION" and structure == "BEARISH" and trend == "DOWNTREND":
-        return "BUY", "Downtrend exhaustion", 88
+    if manipulation:
+        return "WAIT", "Manipulation detected", 0
 
-    # 3️⃣ Pullback Continuation
-    if trend == "UPTREND" and candle == "REJECTION" and structure == "BULLISH":
-        return "BUY", "Pullback continuation", 86
-    if trend == "DOWNTREND" and candle == "REJECTION" and structure == "BEARISH":
-        return "SELL", "Pullback continuation", 86
+    # ===== FINAL DECISION (Rules 21–25)
+    diff = buy_score - sell_score
+    confidence = min(95, abs(diff) * 12)
 
-    # 4️⃣ Support / Resistance Reaction
-    if sr["support"] and candle == "REJECTION":
-        return "BUY", "Support reaction", 84
-    if sr["resistance"] and candle == "REJECTION":
-        return "SELL", "Resistance reaction", 84
+    if diff >= 3 and confidence >= 80:
+        return "BUY", "Multi-layer bullish confluence", confidence
+    if diff <= -3 and confidence >= 80:
+        return "SELL", "Multi-layer bearish confluence", confidence
 
-    # 5️⃣ Range Fade (Lowest Priority)
-    if structure == "RANGE" and candle == "IMPULSE":
-        return "SELL", "Range spike fade", 80
-
-    return "WAIT", reason, confidence
+    return "WAIT", "No strong confluence", confidence
 
 # =============================
 # EXECUTION
@@ -218,10 +237,9 @@ if image is not None and st.button("🔍 Analyse Market"):
             candle = analyse_candle_behaviour(gray)
             trend = confirm_trend(gray)
 
-            signal, reason, conf = pocket_ai_decision(structure, sr, candle, trend)
-
-            if conf < 80:
-                signal, reason = "WAIT", "Low confidence setup"
+            signal, reason, conf = malagna_decision(
+                structure, sr, candle, trend, gray
+            )
 
     entry = datetime.now().replace(second=0, microsecond=0) + timedelta(minutes=1)
     expiry = entry + timedelta(minutes=1)
@@ -248,6 +266,8 @@ EXPIRY: {expiry.strftime('%H:%M')}
             st.write("•", w)
     else:
         st.success("✅ Market behaviour appears normal")
+
+
 
 
 
