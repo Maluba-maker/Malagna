@@ -1,10 +1,11 @@
 (function () {
   console.log("Pocket Option Signal Injector Started");
 
-  const WS_URL = "wss://YOUR-BACKEND-URL/ws"; // Replace after backend deploy
+  const WS_URL = "wss://malagna.onrender.com/ws";
   const ws = new WebSocket(WS_URL);
 
-  ws.onopen = () => console.log("Connected to backend");
+  ws.onopen = () => console.log("Connected to backend WebSocket");
+  ws.onerror = (e) => console.error("WebSocket error:", e);
 
   let lastPrice = null;
 
@@ -13,6 +14,7 @@
     if (!el) return;
 
     const price = parseFloat(el.innerText);
+
     if (!isNaN(price) && price !== lastPrice) {
       lastPrice = price;
       ws.send(price.toString());
