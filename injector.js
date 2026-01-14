@@ -1,25 +1,21 @@
 (function () {
-  console.log("Pocket Option Signal Injector started");
+  console.log("Pocket Option Signal Injector Started");
 
-  const STREAMLIT_URL = "https://malagna.streamlit.app/";
+  const WS_URL = "wss://YOUR-BACKEND-URL/ws"; // Replace after backend deploy
+  const ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => console.log("Connected to backend");
 
   let lastPrice = null;
-
-  function sendPrice(price) {
-    const url = `${STREAMLIT_URL}?price=${price}`;
-    fetch(url, { mode: "no-cors" });
-  }
 
   setInterval(() => {
     const el = document.querySelector(".open-time-number");
     if (!el) return;
 
-    const text = el.innerText || el.textContent;
-    const price = parseFloat(text);
-
+    const price = parseFloat(el.innerText);
     if (!isNaN(price) && price !== lastPrice) {
       lastPrice = price;
-      sendPrice(price);
+      ws.send(price.toString());
       console.log("Sent price:", price);
     }
   }, 500);
