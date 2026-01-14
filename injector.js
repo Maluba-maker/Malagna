@@ -1,11 +1,12 @@
 (function () {
   console.log("Pocket Option Signal Injector Started");
 
-  const WS_URL = "wss://malagna.onrender.com/ws";
+  const WS_URL = "wss://malagna.onrender.com/ws";  // ✅ CORRECT
   const ws = new WebSocket(WS_URL);
 
   ws.onopen = () => console.log("Connected to backend WebSocket");
   ws.onerror = (e) => console.error("WebSocket error:", e);
+  ws.onclose = () => console.log("WebSocket closed");
 
   let lastPrice = null;
 
@@ -22,3 +23,4 @@
     }
   }, 500);
 })();
+
