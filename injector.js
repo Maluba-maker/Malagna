@@ -1,17 +1,26 @@
 (function () {
-  console.log("Signal injector running...");
+  console.log("Pocket Option Signal Injector started");
+
+  const STREAMLIT_URL = "https://malagna.streamlit.app/";
+
+  let lastPrice = null;
 
   function sendPrice(price) {
-    fetch("http://localhost:8501", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ price: price })
-    }).catch(err => console.log("Send failed:", err));
+    const url = `${STREAMLIT_URL}?price=${price}`;
+    fetch(url, { mode: "no-cors" });
   }
 
   setInterval(() => {
-    // TEMP: fake price for testing
-    const fakePrice = Math.random() * 100;
-    sendPrice(fakePrice);
-  }, 1000);
+    const el = document.querySelector(".open-time-number");
+    if (!el) return;
+
+    const text = el.innerText || el.textContent;
+    const price = parseFloat(text);
+
+    if (!isNaN(price) && price !== lastPrice) {
+      lastPrice = price;
+      sendPrice(price);
+      console.log("Sent price:", price);
+    }
+  }, 500);
 })();
