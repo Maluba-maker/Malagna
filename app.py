@@ -14,7 +14,7 @@ if "signals" not in st.session_state:
 
 st.title("📊 Pocket Option Signal Dashboard (M1)")
 
-BACKEND_WS = "wss://YOUR-BACKEND-URL/ws"  # <-- Replace after deploy
+BACKEND_WS = "wss://malagna.onrender.com/ws"
 
 def on_message(ws, message):
     try:
@@ -70,3 +70,5 @@ else:
 
 st.subheader("📜 History")
 st.dataframe(st.session_state.signals, use_container_width=True)
+
+
