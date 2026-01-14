@@ -4,3 +4,6 @@ pillow
 opencv-python-headless
 mss
 openai
+streamlit-webrtc
+streamlit-drawable-canvas
+av
