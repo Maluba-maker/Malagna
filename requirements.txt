@@ -1,6 +1,6 @@
-fastapi
-uvicorn
 streamlit
-websockets
-
-
+numpy
+pillow
+opencv-python-headless
+mss
+openai
