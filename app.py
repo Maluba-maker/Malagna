@@ -1,23 +1,22 @@
 import streamlit as st
-import hashlib
 import cv2
 import numpy as np
+import time
+import hashlib
 from PIL import Image
+from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
+from streamlit_drawable_canvas import st_canvas
 from datetime import datetime, timedelta
 
 # =============================
 # PAGE CONFIG
 # =============================
-st.set_page_config(page_title="Malagna Signal Engine", layout="centered")
+st.set_page_config(page_title="Maluz Live Vision", layout="centered")
+st.markdown("## 🔹 Maluz Signal Engine (Live)")
+st.caption("Auto-capture + Continuous Vision Mode")
 
 # =============================
-# BRANDING
-# =============================
-st.markdown("## 🔹 Malagna Signal Engine")
-st.caption("Malagna – a Pocket-AI style OTC market analysis.")
-
-# =============================
-# PASSWORD PROTECTION
+# PASSWORD GATE
 # =============================
 PASSWORD = "maluz123"
 PASSWORD_HASH = hashlib.sha256(PASSWORD.encode()).hexdigest()
@@ -31,12 +30,10 @@ def check_password():
             st.session_state["authenticated"] = False
 
     if "authenticated" not in st.session_state:
-        st.text_input("🔐 Enter password", type="password",
-                      key="password", on_change=password_entered)
+        st.text_input("🔐 Enter password", type="password", key="password", on_change=password_entered)
         return False
     elif not st.session_state["authenticated"]:
-        st.text_input("🔐 Enter password", type="password",
-                      key="password", on_change=password_entered)
+        st.text_input("🔐 Enter password", type="password", key="password", on_change=password_entered)
         st.error("❌ Incorrect password")
         return False
     return True
@@ -45,35 +42,27 @@ if not check_password():
     st.stop()
 
 # =============================
-# IMAGE VALIDATION
+# STATE
 # =============================
-def validate_image(image):
-    if image is None or image.size == 0:
-        return False, "Invalid image"
-    if len(image.shape) != 3:
-        return False, "Image must be color"
-    return True, "OK"
+if "latest_frame" not in st.session_state:
+    st.session_state.latest_frame = None
+if "roi" not in st.session_state:
+    st.session_state.roi = None  # (x1, y1, x2, y2)
+if "running" not in st.session_state:
+    st.session_state.running = False
+if "last_sample" not in st.session_state:
+    st.session_state.last_sample = 0
+if "signal" not in st.session_state:
+    st.session_state.signal = "WAIT"
+if "conf" not in st.session_state:
+    st.session_state.conf = 0
+if "reason" not in st.session_state:
+    st.session_state.reason = "—"
+if "warnings" not in st.session_state:
+    st.session_state.warnings = []
 
 # =============================
-# INPUT
-# =============================
-input_mode = st.radio("Select Input Mode", ["Upload / Drag Screenshot", "Take Photo (Camera)"])
-image = None
-
-if input_mode == "Upload / Drag Screenshot":
-    uploaded = st.file_uploader("Upload OTC chart screenshot", type=["png", "jpg", "jpeg"])
-    if uploaded:
-        image = np.array(Image.open(uploaded))
-        st.image(image, use_column_width=True)
-
-if input_mode == "Take Photo (Camera)":
-    cam = st.camera_input("Capture chart photo")
-    if cam:
-        image = np.array(Image.open(cam))
-        st.image(image, use_column_width=True)
-
-# =============================
-# FEATURE EXTRACTION
+# MALUZ FUNCTIONS (UNCHANGED)
 # =============================
 def market_quality_ok(gray):
     return np.std(gray) >= 12
@@ -139,133 +128,210 @@ def market_behaviour_warning(gray):
         flags.append("Possible manipulation / spikes")
     return flags
 
+def evaluate_pairs(structure, sr, candle, trend):
+    fired = []
+
+    # A: Trend
+    if structure == "BULLISH" and candle == "IMPULSE":
+        fired.append(("BUY", 88, "Pair 1: Bullish trend acceleration"))
+    if structure == "BULLISH" and trend == "UPTREND" and candle == "REJECTION":
+        fired.append(("BUY", 85, "Pair 2: Pullback in uptrend"))
+    if structure == "BULLISH" and trend == "UPTREND" and candle == "IMPULSE":
+        fired.append(("BUY", 90, "Pair 3: Breakout continuation"))
+    if structure == "BEARISH" and candle == "IMPULSE":
+        fired.append(("SELL", 88, "Pair 4: Bearish trend acceleration"))
+    if structure == "BEARISH" and trend == "DOWNTREND" and candle == "REJECTION":
+        fired.append(("SELL", 85, "Pair 5: Pullback in downtrend"))
+
+    # B: SR
+    if sr["support"] and candle == "REJECTION":
+        fired.append(("BUY", 87, "Pair 6: Support rejection"))
+    if sr["resistance"] and candle == "REJECTION":
+        fired.append(("SELL", 87, "Pair 7: Resistance rejection"))
+    if sr["support"] and candle == "NEUTRAL" and structure == "BEARISH":
+        fired.append(("BUY", 90, "Pair 8: Sell exhaustion / double bottom"))
+    if sr["resistance"] and candle == "NEUTRAL" and structure == "BULLISH":
+        fired.append(("SELL", 90, "Pair 9: Buy exhaustion / double top"))
+    if sr["support"] and candle == "IMPULSE":
+        fired.append(("BUY", 84, "Pair 10: Support impulse"))
+
+    # C: Mean reversion
+    if sr["support"] and candle == "NEUTRAL" and trend == "DOWNTREND":
+        fired.append(("BUY", 86, "Pair 11: Mean reversion from lows"))
+    if sr["resistance"] and candle == "NEUTRAL" and trend == "UPTREND":
+        fired.append(("SELL", 86, "Pair 12: Mean reversion from highs"))
+    if sr["support"] and candle == "REJECTION" and structure == "RANGE":
+        fired.append(("BUY", 88, "Pair 13: Oversold snapback"))
+    if sr["resistance"] and candle == "REJECTION" and structure == "RANGE":
+        fired.append(("SELL", 88, "Pair 14: Overbought snapback"))
+    if candle == "IMPULSE" and structure == "RANGE":
+        fired.append(("BUY", 83, "Pair 15: Volatility release"))
+
+    # D: Momentum + structure
+    if candle == "IMPULSE" and structure == "BULLISH" and trend == "UPTREND":
+        fired.append(("BUY", 84, "Pair 16: Momentum alignment up"))
+    if candle == "IMPULSE" and structure == "BEARISH" and trend == "DOWNTREND":
+        fired.append(("SELL", 84, "Pair 17: Momentum alignment down"))
+    if sr["support"] and structure == "BULLISH" and candle == "NEUTRAL":
+        fired.append(("BUY", 89, "Pair 18: Hidden accumulation"))
+    if sr["resistance"] and structure == "BEARISH" and candle == "NEUTRAL":
+        fired.append(("SELL", 89, "Pair 19: Distribution"))
+    if candle == "REJECTION" and trend in ["UPTREND", "DOWNTREND"]:
+        fired.append(("BUY" if trend == "UPTREND" else "SELL", 83, "Pair 20: Second-leg entry"))
+
+    # E: OTC / manipulation
+    if sr["support"] and candle == "IMPULSE" and structure != "BEARISH":
+        fired.append(("BUY", 92, "Pair 21: Stop-hunt recovery"))
+    if sr["resistance"] and candle == "IMPULSE" and structure != "BULLISH":
+        fired.append(("SELL", 92, "Pair 22: Stop-hunt rejection"))
+    if sr["support"] and candle == "IMPULSE" and trend == "FLAT":
+        fired.append(("BUY", 94, "Pair 23: Spring pattern"))
+    if sr["resistance"] and candle == "IMPULSE" and trend == "FLAT":
+        fired.append(("SELL", 94, "Pair 24: Upthrust pattern"))
+    if candle == "IMPULSE" and structure == "RANGE":
+        fired.append(("SELL", 85, "Pair 25: Wick spike fade"))
+
+    if not fired:
+        return "WAIT", "No valid pair alignment", 0, None
+
+    fired.sort(key=lambda x: x[1], reverse=True)
+    top = fired[0]
+
+    opposing = None
+    for f in fired[1:]:
+        if f[0] != top[0]:
+            opposing = f
+            break
+
+    if opposing:
+        return (
+            top[0],
+            f"{top[2]} ⚠️ Conflict with {opposing[0]} ({opposing[1]}%)",
+            top[1],
+            opposing[1]
+        )
+
+    return top[0], top[2], top[1], None
+
 # =============================
-# MARKET PERMISSION (Layer 5 rules)
+# WEBRTC CAPTURE
 # =============================
-def market_permission(gray):
-    h, w = gray.shape
+class VisionProcessor(VideoTransformerBase):
+    def transform(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        st.session_state.latest_frame = img
+        return img
 
-    if np.std(gray[int(h*0.55):int(h*0.75), :]) < 16:
-        return False, "Market compressed"
+st.subheader("Live Capture (Share the Pocket Option TAB)")
 
-    if abs(np.std(gray[:, :w//3]) - np.std(gray[:, w//3:])) > 20:
-        return False, "Volatility transition"
-
-    if np.std(gray[int(h*0.6):int(h*0.75), int(w*0.7):]) > 40:
-        return False, "Early candle impulse"
-
-    return True, "Market tradable"
-
-# =============================
-# 🔵 25-RULE CORE ENGINE
-# =============================
-def malagna_decision(structure, sr, candle, trend, gray):
-    buy_score = 0
-    sell_score = 0
-    reasons = []
-
-    # ===== LAYER 1: Candle Truth (Rules 1–5)
-    if candle == "IMPULSE":
-        buy_score += 2
-        sell_score += 2
-    elif candle == "REJECTION":
-        buy_score += 1
-        sell_score += 1
-
-    # ===== LAYER 2: Structure & Location (Rules 6–10)
-    if structure == "BULLISH":
-        buy_score += 2
-    elif structure == "BEARISH":
-        sell_score += 2
-
-    if sr["support"]:
-        buy_score += 2
-    if sr["resistance"]:
-        sell_score += 2
-
-    # ===== LAYER 3: Momentum & Trend (Rules 11–15)
-    if trend == "UPTREND":
-        buy_score += 2
-    elif trend == "DOWNTREND":
-        sell_score += 2
-
-    # ===== LAYER 4: Liquidity & Manipulation (Rules 16–20)
-    manipulation = False
-    if candle == "IMPULSE" and sr["resistance"] and structure != "BULLISH":
-        manipulation = True
-        reasons.append("Upper liquidity sweep")
-    if candle == "IMPULSE" and sr["support"] and structure != "BEARISH":
-        manipulation = True
-        reasons.append("Lower liquidity sweep")
-
-    if manipulation:
-        return "WAIT", "Manipulation detected", 0
-
-    # ===== FINAL DECISION (Rules 21–25)
-    diff = buy_score - sell_score
-    confidence = min(95, abs(diff) * 12)
-
-    if diff >= 3 and confidence >= 80:
-        return "BUY", "Multi-layer bullish confluence", confidence
-    if diff <= -3 and confidence >= 80:
-        return "SELL", "Multi-layer bearish confluence", confidence
-
-    return "WAIT", "No strong confluence", confidence
+webrtc_streamer(
+    key="maluz-live",
+    video_transformer_factory=VisionProcessor,
+    media_stream_constraints={"video": True, "audio": False},
+    async_processing=True,
+)
 
 # =============================
-# EXECUTION
+# ROI SELECTOR (DRAG BOX)
 # =============================
-if image is not None and st.button("🔍 Analyse Market"):
+st.subheader("Select Chart Region (Draw a box once)")
 
-    valid, msg = validate_image(image)
-    if not valid:
-        st.error(msg)
-        st.stop()
+if st.session_state.latest_frame is not None:
+    img = cv2.cvtColor(st.session_state.latest_frame, cv2.COLOR_BGR2RGB)
+    canvas_result = st_canvas(
+        fill_color="rgba(0, 0, 0, 0)",
+        stroke_width=2,
+        stroke_color="#00FF00",
+        background_image=Image.fromarray(img),
+        update_streamlit=True,
+        height=img.shape[0]//2,
+        width=img.shape[1]//2,
+        drawing_mode="rect",
+        key="canvas",
+    )
 
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    if canvas_result.json_data and len(canvas_result.json_data["objects"]) > 0:
+        rect = canvas_result.json_data["objects"][-1]
+        x1 = int(rect["left"])
+        y1 = int(rect["top"])
+        x2 = int(x1 + rect["width"])
+        y2 = int(y1 + rect["height"])
+        st.session_state.roi = (x1, y1, x2, y2)
+        st.success("ROI set. Live analysis will use this region.")
 
-    if not market_quality_ok(gray):
-        signal, reason, conf = "WAIT", "Poor market quality", 0
-    else:
-        allowed, permission_reason = market_permission(gray)
+# =============================
+# CONTROLS
+# =============================
+col1, col2, col3 = st.columns(3)
+with col1:
+    if st.button("▶ Start"):
+        st.session_state.running = True
+with col2:
+    if st.button("⏸ Pause"):
+        st.session_state.running = False
+with col3:
+    if st.button("🔄 Reset"):
+        st.session_state.running = False
+        st.session_state.signal = "WAIT"
+        st.session_state.conf = 0
+        st.session_state.reason = "—"
+        st.session_state.warnings = []
 
-        if not allowed:
-            signal, reason, conf = "WAIT", permission_reason, 0
-        else:
-            structure = detect_market_structure(gray)
-            sr = detect_support_resistance(gray)
-            candle = analyse_candle_behaviour(gray)
-            trend = confirm_trend(gray)
+# =============================
+# CONTINUOUS ANALYSIS (2s)
+# =============================
+st.subheader("Live Signal")
 
-            signal, reason, conf = malagna_decision(
-                structure, sr, candle, trend, gray
-            )
+if st.session_state.running and st.session_state.latest_frame is not None and st.session_state.roi is not None:
+    now = time.time()
+    if now - st.session_state.last_sample >= 2:
+        st.session_state.last_sample = now
 
-    entry = datetime.now().replace(second=0, microsecond=0) + timedelta(minutes=1)
-    expiry = entry + timedelta(minutes=1)
-    warnings = market_behaviour_warning(gray)
+        frame = st.session_state.latest_frame
+        x1, y1, x2, y2 = st.session_state.roi
+        crop = frame[y1:y2, x1:x2]
 
-    if signal == "BUY":
-        st.success(f"🟢 BUY SIGNAL ({conf}%)")
-    elif signal == "SELL":
-        st.error(f"🔴 SELL SIGNAL ({conf}%)")
-    else:
-        st.info("⚪ WAIT")
+        if crop.size > 0:
+            gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
 
-    st.code(f"""
-SIGNAL: {signal}
-CONFIDENCE: {conf}%
-REASON: {reason}
-ENTRY: {entry.strftime('%H:%M')}
-EXPIRY: {expiry.strftime('%H:%M')}
+            if not market_quality_ok(gray):
+                signal, reason, conf, _ = "WAIT", "Market quality poor", 0, None
+            else:
+                structure = detect_market_structure(gray)
+                sr = detect_support_resistance(gray)
+                candle = analyse_candle_behaviour(gray)
+                trend = confirm_trend(gray)
+
+                signal, reason, conf, _ = evaluate_pairs(structure, sr, candle, trend)
+
+            warnings = market_behaviour_warning(gray)
+
+            st.session_state.signal = signal
+            st.session_state.conf = conf
+            st.session_state.reason = reason
+            st.session_state.warnings = warnings
+
+# =============================
+# DISPLAY
+# =============================
+if st.session_state.signal == "BUY":
+    st.success(f"🟢 BUY ({st.session_state.conf}%)")
+elif st.session_state.signal == "SELL":
+    st.error(f"🔴 SELL ({st.session_state.conf}%)")
+else:
+    st.info("⚪ WAIT")
+
+st.code(f"""
+SIGNAL: {st.session_state.signal}
+CONFIDENCE: {st.session_state.conf}%
+REASON: {st.session_state.reason}
 """.strip())
 
-    if warnings:
-        st.error("🚨 Market Behaviour Alert")
-        for w in warnings:
-            st.write("•", w)
-    else:
-        st.success("✅ Market behaviour appears normal")
+if st.session_state.warnings:
+    st.warning("⚠ Market Alerts")
+    for w in st.session_state.warnings:
+        st.write("•", w)
+
 
 
 
