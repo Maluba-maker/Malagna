@@ -1,7 +1,7 @@
 (function () {
   console.log("Pocket Option Signal Injector Started");
 
-  const WS_URL = "wss://malagna.onrender.com/ws";  // ✅ CORRECT
+  const WS_URL = "wss://malagna.onrender.com/ws";
   const ws = new WebSocket(WS_URL);
 
   ws.onopen = () => console.log("Connected to backend WebSocket");
@@ -23,4 +23,6 @@
     }
   }, 500);
 })();
+
+
 
