@@ -1,6 +1,5 @@
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
 
 app = FastAPI()
 
@@ -15,16 +14,24 @@ app.add_middleware(
 clients = []
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await websocket.accept()
-    clients.append(websocket)
+async def websocket_endpoint(ws: WebSocket):
+    await ws.accept()
+    clients.append(ws)
+    print("Client connected")
+
     try:
         while True:
-            data = await websocket.receive_text()
+            data = await ws.receive_text()
+            print("Received price:", data)
+
             for client in clients:
                 await client.send_text(data)
     except:
-        clients.remove(websocket)
+        clients.remove(ws)
+        print("Client disconnected")
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.get("/")
+def root():
+    return {"status": "WebSocket server running"}
+
+
