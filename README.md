@@ -1,22 +1,42 @@
 # Pocket Option Signal System (Streamlit)
 
-## Install
-pip install -r requirements.txt
-
-## Run
-streamlit run app.py
-
 ## What this does
-- Shows BUY / SELL signals
+- Reads the live price from Pocket Option
+- Generates BUY / SELL signals
 - M1 logic
 - Confidence %
 - Reason
-- Sound/visual alerts
-- History
+- Signal history
+- No trading
+- No automation
 
-## Injector
-injector.js is a browser script that will later be connected to Pocket Option's live chart.
+---
+
+## How to deploy (Streamlit Cloud)
+
+1. Upload:
+   - app.py
+   - requirements.txt
+
+2. Go to https://streamlit.io/cloud
+3. Deploy from GitHub
+4. Done
+
+---
+
+## How to use
+
+1. Open Pocket Option
+2. Press F12 → Console
+3. Paste injector.js
+4. Press Enter
+5. Open https://malagna.streamlit.app
+6. Signals will appear automatically
+
+---
 
 ## Important
-This system does NOT trade.
-It only generates signals.
+
+This is a signal-only system.
+It does not place trades.
+You trade manually.
