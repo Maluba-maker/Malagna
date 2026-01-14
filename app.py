@@ -1,21 +1,31 @@
 import streamlit as st
 import numpy as np
 from datetime import datetime
-import requests
-import json
 from streamlit_autorefresh import st_autorefresh
 
-st.set_page_config(page_title="Signal Dashboard", layout="wide")
+st.set_page_config(page_title="Pocket Option Signal Dashboard", layout="wide")
 
+# Auto refresh every second
+st_autorefresh(interval=1000, key="refresh")
+
+# State
 if "prices" not in st.session_state:
     st.session_state.prices = []
 
 if "signals" not in st.session_state:
     st.session_state.signals = []
 
-st.title("📊 Pocket Option Signal Dashboard (M1)")
+# Read incoming price from URL
+params = st.experimental_get_query_params()
+if "price" in params:
+    try:
+        price = float(params["price"][0])
+        if len(st.session_state.prices) == 0 or price != st.session_state.prices[-1]:
+            st.session_state.prices.append(price)
+    except:
+        pass
 
-st_autorefresh(interval=1000, key="refresh")
+st.title("📊 Pocket Option Signal Dashboard (M1)")
 
 def generate_signal(prices):
     if len(prices) < 20:
@@ -41,29 +51,24 @@ def generate_signal(prices):
 
     return direction, confidence, reason
 
-# --- Sidebar manual test input ---
-st.sidebar.header("Manual Test Feed")
-test_price = st.sidebar.number_input("Incoming price", value=1.0000, step=0.0001)
+# Generate signal
+result = generate_signal(st.session_state.prices)
+if result:
+    direction, confidence, reason = result
+    if direction != "WAIT":
+        signal = {
+            "time": datetime.now().strftime("%H:%M:%S"),
+            "pair": "OTC",
+            "direction": direction,
+            "expiry": "1 min",
+            "confidence": confidence,
+            "reason": reason
+        }
 
-if st.sidebar.button("Send Price"):
-    st.session_state.prices.append(test_price)
-
-    result = generate_signal(st.session_state.prices)
-    if result:
-        direction, confidence, reason = result
-        if direction != "WAIT":
-            signal = {
-                "time": datetime.now().strftime("%H:%M:%S"),
-                "pair": "OTC",
-                "direction": direction,
-                "expiry": "1 min",
-                "confidence": confidence,
-                "reason": reason
-            }
+        if len(st.session_state.signals) == 0 or st.session_state.signals[0]["time"] != signal["time"]:
             st.session_state.signals.insert(0, signal)
-            st.balloons()
 
-# --- Latest Signal ---
+# Latest Signal
 st.subheader("📍 Latest Signal")
 
 if st.session_state.signals:
@@ -80,13 +85,15 @@ if st.session_state.signals:
 else:
     st.write("No signals yet.")
 
-# --- History ---
+# History
 st.subheader("📜 Signal History")
 
 if st.session_state.signals:
     st.dataframe(st.session_state.signals, use_container_width=True)
 else:
     st.write("No history yet.")
+
+
 
 
 
