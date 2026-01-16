@@ -103,12 +103,12 @@ def check_password():
     return True
 
 # =========================================
-# PRECISION CANDLE ENGINE
+# PRECISION CANDLE ENGINE (SYNCED)
 # =========================================
 
 class PrecisionCandleEngine:
     def __init__(self):
-        self.last_centers = []
+        self.last_count = 0
         self.candle_index = -1
         self.flicker_filter = FlickerFilter(confirm_frames=2)
 
@@ -134,7 +134,12 @@ class PrecisionCandleEngine:
                     "color": color
                 })
 
-        return self._merge_verticals(candles)
+        candles = self._merge_verticals(candles)
+
+        # Sort left to right = time order
+        candles = sorted(candles, key=lambda c: c["x"])
+
+        return candles
 
     def _merge_verticals(self, candles):
         merged = []
@@ -153,84 +158,72 @@ class PrecisionCandleEngine:
 
     def update(self, frame):
         candles = self.detect_candles(frame)
-        centers = [c["x"] for c in candles]
+        count = len(candles)
 
-        if not self.last_centers:
-            self.last_centers = centers
-            self.candle_index = len(centers) - 1
-            return False, candles
+        if self.last_count == 0:
+            self.last_count = count
+            return False, candles, self.candle_index
 
-        if len(centers) > len(self.last_centers):
+        if count > self.last_count:
             confirmed = self.flicker_filter.update(True)
             if confirmed:
                 self.candle_index += 1
-                self.last_centers = centers
-                return True, candles
+                self.last_count = count
+                return True, candles, self.candle_index
         else:
             self.flicker_filter.update(False)
 
-        self.last_centers = centers
-        return False, candles
+        self.last_count = count
+        return False, candles, self.candle_index
+
 # =========================================
-# PRECISION FRACTAL ENGINE
+# AUTO FRACTAL DETECTION ENGINE (PATCH 1)
 # =========================================
 
 class PrecisionFractalEngine:
     def __init__(self):
-        self.last_fractals = []
-        self.confirm_filter = FlickerFilter(confirm_frames=2)
+        self.candles = []
+        self.last_confirmed_index = None
+        self.fractal_index = None
 
-    def detect_fractals(self, frame):
-        hsv = to_hsv(frame)
-        green_mask = cv2.inRange(hsv, (35, 80, 80), (85, 255, 255))
-        red1 = cv2.inRange(hsv, (0, 80, 80), (10, 255, 255))
-        red2 = cv2.inRange(hsv, (170, 80, 80), (180, 255, 255))
-        red_mask = cv2.bitwise_or(red1, red2)
+    def update(self, candle, index):
+        self.candles.append(candle)
 
-        fractals = []
-        fractals += self._extract_arrows(green_mask, "UP")
-        fractals += self._extract_arrows(red_mask, "DOWN")
-        return fractals
+        if len(self.candles) < 5:
+            return False, None, None
 
-    def _extract_arrows(self, mask, ftype):
-        cnts = find_contours(mask)
-        arrows = []
-        for c in cnts:
-            area = cv2.contourArea(c)
-            if area < 25 or area > 2500:
-                continue
-            peri = cv2.arcLength(c, True)
-            approx = cv2.approxPolyDP(c, 0.04 * peri, True)
-            if 5 <= len(approx) <= 9:
-                x, y, w, h = cv2.boundingRect(c)
-                if w < 6 or h < 6:
-                    continue
-                arrows.append({
-                    "x": x + w // 2,
-                    "y": y + h // 2,
-                    "type": ftype
-                })
-        return arrows
+        i = len(self.candles) - 3
 
-    def update(self, frame):
-        fractals = self.detect_fractals(frame)
+        if self.last_confirmed_index == i:
+            return False, None, None
 
-        if not self.last_fractals:
-            self.last_fractals = fractals
-            return False, None
+        c0 = self.candles[i - 2]
+        c1 = self.candles[i - 1]
+        c2 = self.candles[i]
+        c3 = self.candles[i + 1]
+        c4 = self.candles[i + 2]
 
-        if len(fractals) > len(self.last_fractals):
-            confirmed = self.confirm_filter.update(True)
-            if confirmed:
-                newest = fractals[-1]
-                self.last_fractals = fractals
-                return True, newest["type"]
-        else:
-            self.confirm_filter.update(False)
+        if (
+            c2["top"] < c1["top"] and
+            c2["top"] < c0["top"] and
+            c2["top"] < c3["top"] and
+            c2["top"] < c4["top"]
+        ):
+            self.last_confirmed_index = i
+            self.fractal_index = index
+            return True, "UP", index
 
-        self.last_fractals = fractals
-        return False, None
+        if (
+            c2["bottom"] > c1["bottom"] and
+            c2["bottom"] > c0["bottom"] and
+            c2["bottom"] > c3["bottom"] and
+            c2["bottom"] > c4["bottom"]
+        ):
+            self.last_confirmed_index = i
+            self.fractal_index = index
+            return True, "DOWN", index
 
+        return False, None, None
 
 # =========================================
 # PRECISION ALLIGATOR ENGINE
@@ -242,17 +235,26 @@ class PrecisionAlligatorEngine:
 
     def _detect_masks(self, frame):
         hsv = to_hsv(frame)
+
+        # Blue line (Jaws)
         blue_mask = cv2.inRange(hsv, (90, 70, 70), (130, 255, 255))
+
+        # Red line (Teeth)
         red1 = cv2.inRange(hsv, (0, 70, 70), (10, 255, 255))
         red2 = cv2.inRange(hsv, (170, 70, 70), (180, 255, 255))
         red_mask = cv2.bitwise_or(red1, red2)
+
+        # Green line (Lips)
         green_mask = cv2.inRange(hsv, (35, 70, 70), (85, 255, 255))
+
         return blue_mask, red_mask, green_mask
 
     def _extract_curve_points(self, mask):
         edges = cv2.Canny(mask, 50, 150)
-        lines = cv2.HoughLinesP(edges, 1, np.pi / 180,
-                                threshold=60, minLineLength=30, maxLineGap=10)
+        lines = cv2.HoughLinesP(
+            edges, 1, np.pi / 180,
+            threshold=60, minLineLength=30, maxLineGap=10
+        )
         points = []
         if lines is not None:
             for l in lines:
@@ -270,9 +272,13 @@ class PrecisionAlligatorEngine:
 
     def analyze(self, frame):
         blue_mask, red_mask, green_mask = self._detect_masks(frame)
+
         blue_pts = self._extract_curve_points(blue_mask)
         red_pts = self._extract_curve_points(red_mask)
         green_pts = self._extract_curve_points(green_mask)
+
+        if not blue_pts or not red_pts or not green_pts:
+            return {"direction": "FLAT", "quality": "INVALID"}
 
         s_blue = linear_regression_slope(blue_pts)
         s_red = linear_regression_slope(red_pts)
@@ -290,27 +296,28 @@ class PrecisionAlligatorEngine:
 
         min_sep = min(sep_br, sep_rg, sep_bg)
 
-        if s_blue > 0.04 and s_red > 0.04 and s_green > 0.04:
+        # Intertwined / touching logic
+        if min_sep < 8:
+            return {"direction": "FLAT", "quality": "INTERTWINED"}
+
+        # Zigzag / flat slope logic
+        if not (abs(s_blue) > 0.03 and abs(s_red) > 0.03 and abs(s_green) > 0.03):
+            return {"direction": "FLAT", "quality": "ZIGZAG"}
+
+        # Direction
+        if s_blue > 0 and s_red > 0 and s_green > 0:
             direction = "UPTREND"
-        elif s_blue < -0.04 and s_red < -0.04 and s_green < -0.04:
+        elif s_blue < 0 and s_red < 0 and s_green < 0:
             direction = "DOWNTREND"
         else:
             direction = "FLAT"
 
-        if min_sep < 6:
-            quality = "INTERTWINED"
-        elif min_sep < 14:
-            quality = "WEAK"
-        else:
-            quality = "STRONG"
-
         return {
             "direction": direction,
-            "quality": quality,
+            "quality": "STRONG",
             "slopes": (s_blue, s_red, s_green),
             "separations": (sep_br, sep_rg, sep_bg)
         }
-
 
 # =========================================
 # PRECISION EMA ENGINE
@@ -322,12 +329,15 @@ class PrecisionEMAEngine:
 
     def _detect_mask(self, frame):
         hsv = to_hsv(frame)
+        # White-ish / light color detection for EMA line
         return cv2.inRange(hsv, (0, 0, 200), (180, 60, 255))
 
     def _extract_curve_points(self, mask):
         edges = cv2.Canny(mask, 50, 150)
-        lines = cv2.HoughLinesP(edges, 1, np.pi / 180,
-                                threshold=60, minLineLength=30, maxLineGap=10)
+        lines = cv2.HoughLinesP(
+            edges, 1, np.pi / 180,
+            threshold=60, minLineLength=30, maxLineGap=10
+        )
         points = []
         if lines is not None:
             for l in lines:
@@ -367,13 +377,15 @@ class PrecisionEMAEngine:
         ema_level = np.mean(ema_ys)
         distance = price_y - ema_level
 
+        position = "ABOVE" if distance < 0 else "BELOW"
+
         return {
             "ema_present": True,
             "slope": slope,
-            "price_position": "ABOVE" if distance < 0 else "BELOW",
-            "distance": abs(distance)
+            "price_position": position,
+            "distance": abs(distance),
+            "allowed_direction": "BUY" if position == "ABOVE" else "SELL"
         }
-
 
 # =========================================
 # PRECISION STOCHASTIC ENGINE
@@ -386,7 +398,9 @@ class PrecisionStochasticEngine:
 
     def _detect_masks(self, frame):
         hsv = to_hsv(frame)
+        # Blue line
         blue_mask = cv2.inRange(hsv, (90, 70, 70), (130, 255, 255))
+        # Red line
         red1 = cv2.inRange(hsv, (0, 70, 70), (10, 255, 255))
         red2 = cv2.inRange(hsv, (170, 70, 70), (180, 255, 255))
         red_mask = cv2.bitwise_or(red1, red2)
@@ -394,8 +408,10 @@ class PrecisionStochasticEngine:
 
     def _extract_curve_points(self, mask):
         edges = cv2.Canny(mask, 50, 150)
-        lines = cv2.HoughLinesP(edges, 1, np.pi / 180,
-                                threshold=50, minLineLength=20, maxLineGap=8)
+        lines = cv2.HoughLinesP(
+            edges, 1, np.pi / 180,
+            threshold=50, minLineLength=20, maxLineGap=8
+        )
         points = []
         if lines is not None:
             for l in lines:
@@ -431,13 +447,11 @@ class PrecisionStochasticEngine:
             "valid": True,
             "slope_blue": slope_blue,
             "slope_red": slope_red,
-            "flat": flat,
-            "zone": "NORMAL"
+            "flat": flat
         }
 
-
 # =========================================
-# MEMORY ENGINE
+# SYSTEM STATE
 # =========================================
 
 class SystemState:
@@ -446,6 +460,9 @@ class SystemState:
     READY = "READY"
     FIRED = "FIRED"
 
+# =========================================
+# MEMORY ENGINE
+# =========================================
 
 class MemoryEngine:
     def __init__(self):
@@ -454,22 +471,27 @@ class MemoryEngine:
     def reset(self):
         self.state = SystemState.IDLE
         self.current_candle_index = -1
-        self.fractal_seen_index = None
-        self.wait_count = 0
+        self.fractal_index = None
         self.signal_fired = False
+        self.fractal_type = None
 
-    def new_candle(self):
-        self.current_candle_index += 1
+    def new_candle(self, index):
+        self.current_candle_index = index
+
         if self.state == SystemState.WAITING:
-            self.wait_count += 1
-            if self.wait_count >= 2:
+            if self.current_candle_index - self.fractal_index >= 2:
                 self.state = SystemState.READY
 
-    def on_fractal(self):
+    def on_fractal(self, ftype, index):
         if self.state == SystemState.IDLE:
-            self.fractal_seen_index = self.current_candle_index
-            self.wait_count = 0
+            self.fractal_index = index
+            self.fractal_type = ftype
             self.state = SystemState.WAITING
+
+    def candles_since_fractal(self):
+        if self.fractal_index is None:
+            return None
+        return self.current_candle_index - self.fractal_index
 
     def can_trade(self):
         return self.state == SystemState.READY and not self.signal_fired
@@ -478,61 +500,80 @@ class MemoryEngine:
         self.signal_fired = True
         self.state = SystemState.FIRED
 
-
-# =========================================
-# FUSION ENGINE
-# =========================================
-
-class FusionEngine:
-    def __init__(self, memory_engine):
-        self.memory = memory_engine
-
-    def resolve(self, fractal_data, alligator_data, ema_data, stoch_data):
-        report = {}
-
-        trend = alligator_data["direction"]
-        quality = alligator_data["quality"]
-
-        if trend == "FLAT" or quality == "INTERTWINED":
-            return self._wait("Trend invalid")
-
-        report["TREND"] = f"{trend} (Alligator aligned)"
-
+        # ---------------------------
+        # 1️⃣ FRACTAL GATEKEEPER
+        # ---------------------------
         if not fractal_data["confirmed"]:
-            return self._wait("Fractal not confirmed")
+            return self._wait("No confirmed fractal")
 
-        report["FRACTAL"] = "CONFIRMED"
+        report["FRACTAL"] = fractal_data["type"]
 
+        # ---------------------------
+        # 2️⃣ TIMING RULE (2 candles after fractal)
+        # ---------------------------
         if not self.memory.can_trade():
-            return self._wait("Wait rule active")
+            return self._wait("Waiting for 2-candle confirmation")
 
         report["WAIT RULE"] = "PASSED"
 
+        # ---------------------------
+        # 3️⃣ TREND FILTER
+        # ---------------------------
+        trend = alligator_data["direction"]
+        quality = alligator_data["quality"]
+
+        if trend == "FLAT":
+            return self._wait("No clear trend")
+
+        if quality in ["INTERTWINED", "ZIGZAG", "INVALID"]:
+            return self._wait("Alligator not clean")
+
+        report["TREND"] = trend
+
+        # ---------------------------
+        # 4️⃣ EMA FILTER
+        # ---------------------------
         if not ema_data.get("ema_present", False):
             return self._wait("EMA not detected")
 
-        if trend == "UPTREND" and ema_data["price_position"] != "ABOVE":
-            return self._wait("Price below EMA")
+        allowed = ema_data["allowed_direction"]
 
-        if trend == "DOWNTREND" and ema_data["price_position"] != "BELOW":
-            return self._wait("Price above EMA")
+        if trend == "UPTREND" and allowed != "BUY":
+            return self._wait("EMA blocks BUY")
 
-        report["EMA 150 FILTER"] = "OK"
+        if trend == "DOWNTREND" and allowed != "SELL":
+            return self._wait("EMA blocks SELL")
 
+        report["EMA 150 FILTER"] = "PASSED"
+
+        # ---------------------------
+        # 5️⃣ STOCHASTIC FILTER
+        # ---------------------------
         if not stoch_data["valid"]:
             return self._wait("Stochastic invalid")
 
         risky = False
 
-        if stoch_data.get("flat"):
-            risky = True
-            report["STOCHASTIC"] = "FLAT / EXTREME"
-        else:
-            report["STOCHASTIC"] = "AGREES"
+        # Contradiction logic
+        if trend == "UPTREND" and stoch_data["slope_blue"] < 0 and stoch_data["slope_red"] < 0:
+            return self._wait("Stochastic contradicts trend")
 
+        if trend == "DOWNTREND" and stoch_data["slope_blue"] > 0 and stoch_data["slope_red"] > 0:
+            return self._wait("Stochastic contradicts trend")
+
+        # Flat zone = risky
+        if stoch_data["flat"]:
+            risky = True
+            report["STOCHASTIC"] = "FLAT → RISKY"
+        else:
+            report["STOCHASTIC"] = "CONFIRMS"
+
+        # ---------------------------
+        # 6️⃣ FINAL DECISION
+        # ---------------------------
         signal = "BUY" if trend == "UPTREND" else "SELL"
-        confidence = 92
         signal_type = "RISKY" if risky else "CONFIRMED"
+        confidence = 92 if not risky else 78
 
         return {
             "signal": signal,
@@ -548,7 +589,6 @@ class FusionEngine:
             "confidence": 0,
             "report": {"REASON": reason}
         }
-
 
 # =========================================
 # OUTPUT FORMATTER
@@ -572,10 +612,63 @@ def format_signal_output(result):
     ]
 
     return "\n".join(lines)
+
 # =========================================
 # STREAMLIT UI HELPERS
 # =========================================
 
+def draw_candle_labels(frame, candles, fractal_index=None):
+    overlay = frame.copy()
+
+    for i, c in enumerate(candles):
+        x = int(c["x"])
+        y = int(c["top"] - 10)
+
+        label = f"C{i+1}"
+        color = (255, 255, 255)  # white
+
+        if fractal_index is not None:
+            if i == fractal_index:
+                label = "FRACTAL"
+                color = (0, 255, 255)  # yellow
+            elif i == fractal_index + 1:
+                label = "C+1"
+                color = (255, 255, 0)
+            elif i == fractal_index + 2:
+                label = "C+2"
+                color = (255, 200, 0)
+            elif i > fractal_index + 2:
+                label = "ENTRY"
+                color = (0, 255, 0)
+
+        cv2.putText(
+            overlay,
+            label,
+            (x - 20, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.4,
+            color,
+            1,
+            cv2.LINE_AA
+        )
+    return overlay
+def draw_decision_banner(frame, text, color=(0, 255, 0)):
+    banner = frame.copy()
+    h, w = banner.shape[:2]
+
+    cv2.rectangle(banner, (0, 0), (w, 40), (0, 0, 0), -1)
+    cv2.putText(
+        banner,
+        text,
+        (10, 28),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.8,
+        color,
+        2,
+        cv2.LINE_AA
+    )
+
+    return banner
 def show_title():
     st.markdown(f"## 🔹 {APP_NAME}")
     st.caption(f"Version {VERSION}")
@@ -671,7 +764,7 @@ if st.session_state.signal_locked:
 mode = st.radio("Select Mode", ["Screenshot", "Video"])
 
 # =========================================
-# SCREENSHOT MODE
+# SCREENSHOT MODE (PATCH 6 — FULL)
 # =========================================
 
 if mode == "Screenshot":
@@ -679,44 +772,68 @@ if mode == "Screenshot":
 
     if uploaded:
         frame = np.array(Image.open(uploaded))
-        st.image(frame, use_column_width=True)
+        frame = resize_for_processing(frame)
 
-        if st.button("🔍 Analyze Screenshot"):
-            frame = resize_for_processing(frame)
+        mem = st.session_state.memory
 
-            mem = st.session_state.memory
+        # Candle tracking
+        new_candle, candles = st.session_state.candle_engine.update(frame)
+        if new_candle:
+            mem.new_candle()
 
-            new_candle, _ = st.session_state.candle_engine.update(frame)
-            if new_candle:
-                mem.new_candle()
+            latest = candles[-1]
+            candle_data = {
+                "top": latest["top"],
+                "bottom": latest["bottom"]
+            }
 
-            new_fractal, _ = st.session_state.fractal_engine.update(frame)
+            new_fractal, ftype = st.session_state.fractal_engine.update(candle_data)
             if new_fractal:
-                mem.on_fractal()
+                mem.on_fractal(ftype)
+        else:
+            new_fractal = False
 
-            fractal_data = {"confirmed": new_fractal}
-            alligator_data = st.session_state.alligator_engine.analyze(frame)
-            ema_data = st.session_state.ema_engine.analyze(frame)
-            stoch_data = st.session_state.stoch_engine.analyze(frame)
+        # Label overlay
+        fractal_idx = mem.fractal_index
+        overlay = draw_candle_labels(frame, candles, fractal_idx)
 
-            result = st.session_state.fusion.resolve(
-                fractal_data,
-                alligator_data,
-                ema_data,
-                stoch_data
-            )
+        fractal_data = {
+            "confirmed": new_fractal,
+            "type": mem.fractal_type
+        }
 
-            if result["signal"] != "WAIT":
-                mem.fire()
-                text = format_signal_output(result)
-                st.session_state.signal_locked = True
-                st.session_state.signal_text = text
-                st.experimental_rerun()
-            else:
-                st.info("WAIT — No valid setup")
+        alligator_data = st.session_state.alligator_engine.analyze(frame)
+        ema_data = st.session_state.ema_engine.analyze(frame)
+        stoch_data = st.session_state.stoch_engine.analyze(frame)
+
+        result = st.session_state.fusion.resolve(
+            fractal_data,
+            alligator_data,
+            ema_data,
+            stoch_data
+        )
+
+        banner_text = "WAIT"
+        banner_color = (255, 255, 0)
+
+        if result["signal"] != "WAIT":
+            mem.fire()
+            banner_text = f"{result['signal']} — {result['type']}"
+            banner_color = (0, 255, 0) if result["type"] == "CONFIRMED" else (0, 165, 255)
+            text = format_signal_output(result)
+            st.session_state.signal_locked = True
+            st.session_state.signal_text = text
+        else:
+            banner_text = "WAIT — No valid setup"
+
+        overlay = draw_decision_banner(overlay, banner_text, banner_color)
+        st.image(overlay, use_column_width=True)
+
+        if st.session_state.signal_locked:
+            st.experimental_rerun()
 
 # =========================================
-# VIDEO MODE
+# VIDEO MODE (PATCH 6 — FULL)
 # =========================================
 
 if mode == "Video":
@@ -739,17 +856,32 @@ if mode == "Video":
                     break
 
                 frame = resize_for_processing(frame)
-                frame_slot.image(frame, channels="BGR", use_column_width=True)
 
-                new_candle, _ = st.session_state.candle_engine.update(frame)
+                # Candle tracking
+                new_candle, candles = st.session_state.candle_engine.update(frame)
                 if new_candle:
                     mem.new_candle()
 
-                new_fractal, _ = st.session_state.fractal_engine.update(frame)
-                if new_fractal:
-                    mem.on_fractal()
+                    latest = candles[-1]
+                    candle_data = {
+                        "top": latest["top"],
+                        "bottom": latest["bottom"]
+                    }
 
-                fractal_data = {"confirmed": new_fractal}
+                    new_fractal, ftype = st.session_state.fractal_engine.update(candle_data)
+                    if new_fractal:
+                        mem.on_fractal(ftype)
+                else:
+                    new_fractal = False
+
+                fractal_idx = mem.fractal_index
+                overlay = draw_candle_labels(frame, candles, fractal_idx)
+
+                fractal_data = {
+                    "confirmed": new_fractal,
+                    "type": mem.fractal_type
+                }
+
                 alligator_data = st.session_state.alligator_engine.analyze(frame)
                 ema_data = st.session_state.ema_engine.analyze(frame)
                 stoch_data = st.session_state.stoch_engine.analyze(frame)
@@ -761,24 +893,24 @@ if mode == "Video":
                     stoch_data
                 )
 
+                banner_text = "WAIT"
+                banner_color = (255, 255, 0)
+
                 if result["signal"] != "WAIT":
                     mem.fire()
+                    banner_text = f"{result['signal']} — {result['type']}"
+                    banner_color = (0, 255, 0) if result["type"] == "CONFIRMED" else (0, 165, 255)
                     text = format_signal_output(result)
                     st.session_state.signal_locked = True
                     st.session_state.signal_text = text
+                    overlay = draw_decision_banner(overlay, banner_text, banner_color)
+                    frame_slot.image(overlay, channels="BGR", use_column_width=True)
                     break
+                else:
+                    overlay = draw_decision_banner(overlay, "WAIT — Scanning", (255, 255, 0))
 
+                frame_slot.image(overlay, channels="BGR", use_column_width=True)
                 time.sleep(FRAME_DELAY)
 
             cap.release()
             st.experimental_rerun()
-
-
-
-
-
-
-
-
-
-
