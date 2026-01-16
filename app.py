@@ -1,6 +1,6 @@
 # =========================================
-# MALAGNA TRUE VISION — FINAL SYSTEM
-# PART 1 — CORE + ENGINES + STABILITY
+# MALAGNA TRUE VISION — FINAL PRODUCTION SYSTEM
+# PART 1 — CORE + ENGINES + MEMORY + STABILITY
 # =========================================
 
 import streamlit as st
@@ -11,7 +11,6 @@ import tempfile
 import time
 from datetime import datetime, timedelta
 import hashlib
-import math
 
 # =========================================
 # GLOBAL CONFIG
@@ -19,10 +18,10 @@ import math
 
 APP_NAME = "Malagna True Vision AI"
 VERSION = "3.0 FINAL"
-FRAME_DELAY = 0.05  # seconds between frames in live mode
+FRAME_DELAY = 0.05
 
 # =========================================
-# GENERAL UTILITIES
+# UTILITIES
 # =========================================
 
 def clamp(value, min_val, max_val):
@@ -33,10 +32,6 @@ def current_entry_and_expiry():
     entry = now + timedelta(minutes=1)
     expiry = entry + timedelta(minutes=1)
     return entry, expiry
-
-# =========================================
-# IMAGE HELPERS
-# =========================================
 
 def resize_for_processing(frame, max_width=900):
     h, w = frame.shape[:2]
@@ -50,10 +45,6 @@ def to_hsv(frame):
 
 def to_gray(frame):
     return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-# =========================================
-# VISION HELPERS
-# =========================================
 
 def find_contours(mask):
     cnts = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -110,6 +101,7 @@ def check_password():
         st.error("❌ Incorrect password")
         return False
     return True
+
 # =========================================
 # PRECISION CANDLE ENGINE
 # =========================================
@@ -179,8 +171,6 @@ class PrecisionCandleEngine:
 
         self.last_centers = centers
         return False, candles
-
-
 # =========================================
 # PRECISION FRACTAL ENGINE
 # =========================================
@@ -240,6 +230,8 @@ class PrecisionFractalEngine:
 
         self.last_fractals = fractals
         return False, None
+
+
 # =========================================
 # PRECISION ALLIGATOR ENGINE
 # =========================================
@@ -259,7 +251,8 @@ class PrecisionAlligatorEngine:
 
     def _extract_curve_points(self, mask):
         edges = cv2.Canny(mask, 50, 150)
-        lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=60, minLineLength=30, maxLineGap=10)
+        lines = cv2.HoughLinesP(edges, 1, np.pi / 180,
+                                threshold=60, minLineLength=30, maxLineGap=10)
         points = []
         if lines is not None:
             for l in lines:
@@ -333,7 +326,8 @@ class PrecisionEMAEngine:
 
     def _extract_curve_points(self, mask):
         edges = cv2.Canny(mask, 50, 150)
-        lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=60, minLineLength=30, maxLineGap=10)
+        lines = cv2.HoughLinesP(edges, 1, np.pi / 180,
+                                threshold=60, minLineLength=30, maxLineGap=10)
         points = []
         if lines is not None:
             for l in lines:
@@ -400,7 +394,8 @@ class PrecisionStochasticEngine:
 
     def _extract_curve_points(self, mask):
         edges = cv2.Canny(mask, 50, 150)
-        lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=50, minLineLength=20, maxLineGap=8)
+        lines = cv2.HoughLinesP(edges, 1, np.pi / 180,
+                                threshold=50, minLineLength=20, maxLineGap=8)
         points = []
         if lines is not None:
             for l in lines:
@@ -577,43 +572,6 @@ def format_signal_output(result):
     ]
 
     return "\n".join(lines)
-
-
-# =========================================
-# STABILITY + CALIBRATION LAYER
-# =========================================
-
-class StabilityGuard:
-    def __init__(self, confirm_frames=2):
-        self.confirm_frames = confirm_frames
-        self.counter = 0
-
-    def confirm(self, condition):
-        if condition:
-            self.counter += 1
-        else:
-            self.counter = 0
-        return self.counter >= self.confirm_frames
-
-
-class TrendHysteresis:
-    def __init__(self, hold_frames=3):
-        self.hold_frames = hold_frames
-        self.history = []
-
-    def update(self, trend):
-        self.history.append(trend)
-        if len(self.history) > self.hold_frames:
-            self.history.pop(0)
-        if self.history.count(trend) >= self.hold_frames:
-            return trend
-        return None
-
-
-def final_decision_wrapper(result, alligator_data):
-    if not result or result["signal"] == "WAIT":
-        return None
-    return result
 # =========================================
 # STREAMLIT UI HELPERS
 # =========================================
@@ -748,11 +706,9 @@ if mode == "Screenshot":
                 stoch_data
             )
 
-            final = final_decision_wrapper(result, alligator_data)
-
-            if final:
+            if result["signal"] != "WAIT":
                 mem.fire()
-                text = format_signal_output(final)
+                text = format_signal_output(result)
                 st.session_state.signal_locked = True
                 st.session_state.signal_text = text
                 st.experimental_rerun()
@@ -805,11 +761,9 @@ if mode == "Video":
                     stoch_data
                 )
 
-                final = final_decision_wrapper(result, alligator_data)
-
-                if final:
+                if result["signal"] != "WAIT":
                     mem.fire()
-                    text = format_signal_output(final)
+                    text = format_signal_output(result)
                     st.session_state.signal_locked = True
                     st.session_state.signal_text = text
                     break
@@ -818,6 +772,8 @@ if mode == "Video":
 
             cap.release()
             st.experimental_rerun()
+
+
 
 
 
