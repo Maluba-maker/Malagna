@@ -1,42 +1,42 @@
-# Pocket Option Signal System (Streamlit)
+# Malagna True Vision AI
 
-## What this does
-- Reads the live price from Pocket Option
-- Generates BUY / SELL signals
-- M1 logic
-- Confidence %
-- Reason
-- Signal history
-- No trading
-- No automation
+Malagna True Vision AI is a screenshot- and video-based trading signal engine designed for OTC-style chart analysis.
 
----
+It uses visual detection (computer vision) to analyze:
 
-## How to deploy (Streamlit Cloud)
+- Fractals
+- Alligator trend alignment
+- EMA 150 filter
+- Stochastic behavior
+- Candle structure
+- 2-candle wait rule
+- Memory-based signal locking
+- Stability filtering
 
-1. Upload:
-   - app.py
-   - requirements.txt
-
-2. Go to https://streamlit.io/cloud
-3. Deploy from GitHub
-4. Done
+This system is built for educational and experimental purposes.
 
 ---
 
-## How to use
+## Features
 
-1. Open Pocket Option
-2. Press F12 → Console
-3. Paste injector.js
-4. Press Enter
-5. Open https://malagna.streamlit.app
-6. Signals will appear automatically
+- Screenshot analysis mode
+- Video scanning mode
+- Password-protected access
+- Memory-based logic (no duplicate signals)
+- Full-screen signal card
+- 1-minute expiry logic
+- Noise suppression
+- Stability guard
+- GitHub ready
+- Streamlit Cloud compatible
 
 ---
 
-## Important
+## How to Run Locally
 
-This is a signal-only system.
-It does not place trades.
-You trade manually.
+### 1. Install Python 3.9+
+
+### 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
