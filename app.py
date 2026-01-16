@@ -103,7 +103,7 @@ def check_password():
     return True
 
 # =========================================
-# PRECISION CANDLE ENGINE (SYNCED)
+# PRECISION CANDLE ENGINE (FINAL)
 # =========================================
 
 class PrecisionCandleEngine:
@@ -136,7 +136,7 @@ class PrecisionCandleEngine:
 
         candles = self._merge_verticals(candles)
 
-        # Sort left to right = time order
+        # Sort left → right = time order
         candles = sorted(candles, key=lambda c: c["x"])
 
         return candles
@@ -461,7 +461,7 @@ class SystemState:
     FIRED = "FIRED"
 
 # =========================================
-# MEMORY ENGINE
+# MEMORY ENGINE — FIXED
 # =========================================
 
 class MemoryEngine:
@@ -478,6 +478,7 @@ class MemoryEngine:
     def new_candle(self, index):
         self.current_candle_index = index
 
+        # After fractal, wait for 2 full candles
         if self.state == SystemState.WAITING:
             if self.current_candle_index - self.fractal_index >= 2:
                 self.state = SystemState.READY
@@ -500,6 +501,17 @@ class MemoryEngine:
         self.signal_fired = True
         self.state = SystemState.FIRED
 
+# =========================================
+# FUSION ENGINE — FINAL
+# =========================================
+
+class FusionEngine:
+    def __init__(self, memory_engine):
+        self.memory = memory_engine
+
+    def resolve(self, fractal_data, alligator_data, ema_data, stoch_data):
+        report = {}
+
         # ---------------------------
         # 1️⃣ FRACTAL GATEKEEPER
         # ---------------------------
@@ -517,7 +529,7 @@ class MemoryEngine:
         report["WAIT RULE"] = "PASSED"
 
         # ---------------------------
-        # 3️⃣ TREND FILTER
+        # 3️⃣ TREND FILTER (Alligator)
         # ---------------------------
         trend = alligator_data["direction"]
         quality = alligator_data["quality"]
@@ -561,7 +573,7 @@ class MemoryEngine:
         if trend == "DOWNTREND" and stoch_data["slope_blue"] > 0 and stoch_data["slope_red"] > 0:
             return self._wait("Stochastic contradicts trend")
 
-        # Flat zone = risky
+        # Flat zone = risky but allowed
         if stoch_data["flat"]:
             risky = True
             report["STOCHASTIC"] = "FLAT → RISKY"
@@ -589,7 +601,6 @@ class MemoryEngine:
             "confidence": 0,
             "report": {"REASON": reason}
         }
-
 # =========================================
 # OUTPUT FORMATTER
 # =========================================
@@ -764,7 +775,7 @@ if st.session_state.signal_locked:
 mode = st.radio("Select Mode", ["Screenshot", "Video"])
 
 # =========================================
-# SCREENSHOT MODE (PATCH 6 — FULL)
+# SCREENSHOT MODE — FIXED LOGIC
 # =========================================
 
 if mode == "Screenshot":
@@ -776,29 +787,34 @@ if mode == "Screenshot":
 
         mem = st.session_state.memory
 
-        # Candle tracking
-        new_candle, candles = st.session_state.candle_engine.update(frame)
-        if new_candle:
-            mem.new_candle()
+        # Detect all candles at once
+        candles = st.session_state.candle_engine.detect_candles(frame)
 
-            latest = candles[-1]
-            candle_data = {
-                "top": latest["top"],
-                "bottom": latest["bottom"]
-            }
+        # Reset memory for fresh screenshot scan
+        mem.reset()
 
-            new_fractal, ftype = st.session_state.fractal_engine.update(candle_data)
-            if new_fractal:
-                mem.on_fractal(ftype)
-        else:
-            new_fractal = False
+        detected_fractal = False
+        ftype = None
+        f_index = None
 
-        # Label overlay
-        fractal_idx = mem.fractal_index
-        overlay = draw_candle_labels(frame, candles, fractal_idx)
+        # Feed candles sequentially to fractal engine
+        for i, c in enumerate(candles):
+            candle_data = {"top": c["top"], "bottom": c["bottom"]}
+            new_fractal, t, idx = st.session_state.fractal_engine.update(candle_data, i)
+
+            if new_fractal and not detected_fractal:
+                detected_fractal = True
+                ftype = t
+                f_index = idx
+                mem.on_fractal(ftype, f_index)
+
+            mem.new_candle(i)
+
+        # Overlay labels
+        overlay = draw_candle_labels(frame, candles, mem.fractal_index)
 
         fractal_data = {
-            "confirmed": new_fractal,
+            "confirmed": detected_fractal,
             "type": mem.fractal_type
         }
 
@@ -833,7 +849,7 @@ if mode == "Screenshot":
             st.experimental_rerun()
 
 # =========================================
-# VIDEO MODE (PATCH 6 — FULL)
+# VIDEO MODE — FIXED LOGIC (FIX 6)
 # =========================================
 
 if mode == "Video":
@@ -849,6 +865,7 @@ if mode == "Video":
             frame_slot = st.empty()
 
             mem = st.session_state.memory
+            mem.reset()
 
             while cap.isOpened():
                 ret, frame = cap.read()
@@ -858,9 +875,10 @@ if mode == "Video":
                 frame = resize_for_processing(frame)
 
                 # Candle tracking
-                new_candle, candles = st.session_state.candle_engine.update(frame)
+                new_candle, candles, index = st.session_state.candle_engine.update(frame)
+
                 if new_candle:
-                    mem.new_candle()
+                    mem.new_candle(index)
 
                     latest = candles[-1]
                     candle_data = {
@@ -868,14 +886,14 @@ if mode == "Video":
                         "bottom": latest["bottom"]
                     }
 
-                    new_fractal, ftype = st.session_state.fractal_engine.update(candle_data)
+                    new_fractal, ftype, f_index = st.session_state.fractal_engine.update(candle_data, index)
                     if new_fractal:
-                        mem.on_fractal(ftype)
+                        mem.on_fractal(ftype, f_index)
                 else:
                     new_fractal = False
 
-                fractal_idx = mem.fractal_index
-                overlay = draw_candle_labels(frame, candles, fractal_idx)
+                # Overlay labels
+                overlay = draw_candle_labels(frame, candles, mem.fractal_index)
 
                 fractal_data = {
                     "confirmed": new_fractal,
@@ -903,6 +921,7 @@ if mode == "Video":
                     text = format_signal_output(result)
                     st.session_state.signal_locked = True
                     st.session_state.signal_text = text
+
                     overlay = draw_decision_banner(overlay, banner_text, banner_color)
                     frame_slot.image(overlay, channels="BGR", use_column_width=True)
                     break
