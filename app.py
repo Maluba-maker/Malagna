@@ -151,10 +151,16 @@ if i5:
 
 # ================= CANDLE TYPE (M5) =================
 def candle_type(df):
-    o = float(df["Open"].iloc[-1])
-    c = float(df["Close"].iloc[-1])
-    h = float(df["High"].iloc[-1])
-    l = float(df["Low"].iloc[-1])
+    if df is None or df.empty or len(df) < 2:
+        return "NEUTRAL"
+
+    try:
+        o = float(df["Open"].iloc[-1])
+        c = float(df["Close"].iloc[-1])
+        h = float(df["High"].iloc[-1])
+        l = float(df["Low"].iloc[-1])
+    except Exception:
+        return "NEUTRAL"
 
     body = abs(c - o)
     full = h - l
@@ -292,4 +298,5 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
