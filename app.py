@@ -243,69 +243,80 @@ def evaluate_pairs(structure, sr, candle, trend):
 
     # ---- CATEGORY A (TREND) ----
     if structure == "BULLISH" and candle == "IMPULSE":
-        fired.append(("BUY", 88, "Pair 1: Bullish trend acceleration"))
+        fired.append(("BUY", 88, "Bullish trend acceleration"))
     if structure == "BULLISH" and trend == "UPTREND" and candle == "REJECTION":
-        fired.append(("BUY", 85, "Pair 2: Pullback in uptrend"))
+        fired.append(("BUY", 85, "Pullback in uptrend"))
     if structure == "BULLISH" and trend == "UPTREND" and candle == "IMPULSE":
-        fired.append(("BUY", 90, "Pair 3: Breakout continuation"))
+        fired.append(("BUY", 90, "Breakout continuation"))
     if structure == "BEARISH" and candle == "IMPULSE":
-        fired.append(("SELL", 88, "Pair 4: Bearish trend acceleration"))
+        fired.append(("SELL", 88, "Bearish trend acceleration"))
     if structure == "BEARISH" and trend == "DOWNTREND" and candle == "REJECTION":
-        fired.append(("SELL", 85, "Pair 5: Pullback in downtrend"))
+        fired.append(("SELL", 85, "Pullback in downtrend"))
 
     # ---- CATEGORY B (SR) ----
     if sr["support"] and candle == "REJECTION":
-        fired.append(("BUY", 87, "Pair 6: Support rejection"))
+        fired.append(("BUY", 87, "Support rejection"))
     if sr["resistance"] and candle == "REJECTION":
-        fired.append(("SELL", 87, "Pair 7: Resistance rejection"))
+        fired.append(("SELL", 87, "Resistance rejection"))
     if sr["support"] and candle == "NEUTRAL" and structure == "BEARISH":
-        fired.append(("BUY", 90, "Pair 8: Sell exhaustion"))
+        fired.append(("BUY", 90, "Sell exhaustion"))
     if sr["resistance"] and candle == "NEUTRAL" and structure == "BULLISH":
-        fired.append(("SELL", 90, "Pair 9: Buy exhaustion"))
+        fired.append(("SELL", 90, "Buy exhaustion"))
     if sr["support"] and candle == "IMPULSE":
-        fired.append(("BUY", 84, "Pair 10: Support impulse"))
+        fired.append(("BUY", 84, "Support impulse"))
 
     # ---- CATEGORY C (MEAN REVERSION) ----
     if sr["support"] and candle == "NEUTRAL" and trend == "DOWNTREND":
-        fired.append(("BUY", 86, "Pair 11: Mean reversion low"))
+        fired.append(("BUY", 86, "Mean reversion low"))
     if sr["resistance"] and candle == "NEUTRAL" and trend == "UPTREND":
-        fired.append(("SELL", 86, "Pair 12: Mean reversion high"))
+        fired.append(("SELL", 86, "Mean reversion high"))
     if sr["support"] and candle == "REJECTION" and structure == "RANGE":
-        fired.append(("BUY", 88, "Pair 13: Oversold snapback"))
+        fired.append(("BUY", 88, "Oversold snapback"))
     if sr["resistance"] and candle == "REJECTION" and structure == "RANGE":
-        fired.append(("SELL", 88, "Pair 14: Overbought snapback"))
+        fired.append(("SELL", 88, "Overbought snapback"))
     if candle == "IMPULSE" and structure == "RANGE":
-        fired.append(("BUY", 83, "Pair 15: Volatility release"))
+        fired.append(("BUY", 83, "Volatility release"))
 
     # ---- CATEGORY D (MOMENTUM) ----
     if candle == "IMPULSE" and structure == "BULLISH" and trend == "UPTREND":
-        fired.append(("BUY", 84, "Pair 16: Momentum alignment up"))
+        fired.append(("BUY", 84, "Momentum alignment up"))
     if candle == "IMPULSE" and structure == "BEARISH" and trend == "DOWNTREND":
-        fired.append(("SELL", 84, "Pair 17: Momentum alignment down"))
+        fired.append(("SELL", 84, "Momentum alignment down"))
     if sr["support"] and structure == "BULLISH" and candle == "NEUTRAL":
-        fired.append(("BUY", 89, "Pair 18: Hidden accumulation"))
+        fired.append(("BUY", 89, "Hidden accumulation"))
     if sr["resistance"] and structure == "BEARISH" and candle == "NEUTRAL":
-        fired.append(("SELL", 89, "Pair 19: Distribution"))
+        fired.append(("SELL", 89, "Distribution"))
     if candle == "REJECTION" and trend in ["UPTREND","DOWNTREND"]:
-        fired.append(("BUY" if trend=="UPTREND" else "SELL", 83, "Pair 20: Second-leg entry"))
+        fired.append(("BUY" if trend=="UPTREND" else "SELL", 83, "Second-leg entry"))
 
     if not fired:
-        return "WAIT", "No valid rule alignment", 0
+        return "WAIT", "No rule alignment", 0
 
-    fired.sort(key=lambda x: x[1], reverse=True)
-    top = fired[0]
-    agree = [f for f in fired if f[0]==top[0]]
-    oppose = [f for f in fired if f[0]!=top[0]]
+    # ===== CONFLUENCE LOGIC =====
+    buy_rules  = [r for r in fired if r[0] == "BUY"]
+    sell_rules = [r for r in fired if r[0] == "SELL"]
 
-    confidence = top[1] + (len(agree)-1)*3
-    if oppose:
-        confidence -= min(12, abs(top[1]-oppose[0][1]))
+    buy_count  = len(buy_rules)
+    sell_count = len(sell_rules)
 
-    confidence = max(50, min(99, confidence))
+    buy_score  = sum(r[1] for r in buy_rules)
+    sell_score = sum(r[1] for r in sell_rules)
 
-    return top[0], top[2], confidence
+    # ---- SAFETY FILTERS ----
+    MIN_RULES = 2        # minimum agreement
+    MIN_SCORE = 170      # total confidence floor
 
-signal, reason, confidence = evaluate_pairs(structure, sr, candle, trend)
+    if buy_count >= MIN_RULES and buy_score > sell_score and buy_score >= MIN_SCORE:
+        confidence = min(99, int(buy_score / buy_count))
+        reason = f"{buy_count} rules aligned (BUY confluence)"
+        return "BUY", reason, confidence
+
+    if sell_count >= MIN_RULES and sell_score > buy_score and sell_score >= MIN_SCORE:
+        confidence = min(99, int(sell_score / sell_count))
+        reason = f"{sell_count} rules aligned (SELL confluence)"
+        return "SELL", reason, confidence
+
+    return "WAIT", "Insufficient confluence", 0
 
 # ================= ENTRY & EXPIRY (✅ ADDED) =================
 entry_time = None
@@ -345,6 +356,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
