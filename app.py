@@ -1,14 +1,15 @@
 import streamlit as st
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 import yfinance as yf
 import ta
+import pandas as pd
 
 # ================= PAGE CONFIG =================
 st.set_page_config(page_title="Malagna", layout="wide")
 
 # ================= PASSWORD PROTECTION =================
-APP_PASSWORD = "malagna2026"  # ← change this
+APP_PASSWORD = "malagna2026"  # 🔴 CHANGE THIS
 
 def check_password():
     if "authenticated" not in st.session_state:
@@ -16,9 +17,9 @@ def check_password():
 
     if not st.session_state.authenticated:
         st.markdown("""
-        <div class="block center">
-        <h2>🔐 Secure Access</h2>
-        <p>Please enter password to continue</p>
+        <div style="text-align:center; padding:40px;">
+            <h2>🔐 Secure Access</h2>
+            <p>Enter password to continue</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -52,12 +53,11 @@ body { background-color:#0b0f14; color:white; }
 st.markdown("""
 <div class="block">
   <h1>Malagna</h1>
-  <div class="small">Rule-Based Multi-Timeframe Signal Engine (Real Markets)</div>
+  <div class="small">Rule-Based Multi-Timeframe Signal Engine (Real Markets Only)</div>
 </div>
 """, unsafe_allow_html=True)
 
 # ================= ASSETS =================
-
 CURRENCIES = {
     "EUR/USD":"EURUSD=X","GBP/USD":"GBPUSD=X","USD/JPY":"JPY=X",
     "USD/CHF":"CHF=X","AUD/USD":"AUDUSD=X","USD/CAD":"CAD=X",
@@ -81,19 +81,19 @@ COMMODITIES = {
     "Natural Gas":"NG=F","Copper":"HG=F"
 }
 
-ASSET_GROUPS = {
+MARKETS = {
     "Currencies":CURRENCIES,
     "Crypto":CRYPTO,
     "Stocks":STOCKS,
     "Commodities":COMMODITIES
 }
 
-# ================= ASSET SELECTION =================
+# ================= MARKET SELECTION =================
 st.markdown("<div class='block'><h3>Select Market</h3></div>", unsafe_allow_html=True)
 
-group = st.radio("Market Type", list(ASSET_GROUPS.keys()), horizontal=True)
-asset_name = st.selectbox("Asset", list(ASSET_GROUPS[group].keys()))
-symbol = ASSET_GROUPS[group][asset_name]
+market = st.radio("Market Type", list(MARKETS.keys()), horizontal=True)
+asset_name = st.selectbox("Asset", list(MARKETS[market].keys()))
+symbol = MARKETS[market][asset_name]
 
 # ================= DATA FETCH =================
 @st.cache_data(ttl=30)
@@ -104,27 +104,40 @@ data_1m = fetch(symbol, "1m", "2d")
 data_5m = fetch(symbol, "5m", "5d")
 data_15m = fetch(symbol, "15m", "10d")
 
-# ================= INDICATORS =================
+# ================= INDICATORS (FIXED) =================
 def indicators(df):
-    close = df["Close"].astype(float)
+    if df.empty or "Close" not in df:
+        return None
+
+    close = df["Close"]
+
+    # ✅ FORCE 1-D SERIES (CRITICAL FIX)
+    if isinstance(close, pd.DataFrame):
+        close = close.iloc[:, 0]
+
+    close = close.astype(float)
+
+    if len(close) < 200:
+        return None
+
     return {
         "close": close,
-        "ema50": ta.trend.ema_indicator(close, 50),
-        "ema200": ta.trend.ema_indicator(close, 200),
-        "rsi": ta.momentum.rsi(close, 14),
-        "macd": ta.trend.macd_diff(close)
+        "ema50": ta.trend.ema_indicator(close=close, window=50),
+        "ema200": ta.trend.ema_indicator(close=close, window=200),
+        "rsi": ta.momentum.rsi(close=close, window=14),
+        "macd": ta.trend.macd_diff(close=close)
     }
 
-if data_15m.empty or data_5m.empty or data_1m.empty:
-    signal = "WAIT"
-    trend = "NO DATA"
-    price = 0
-    rsi_val = 0
-else:
-    i15 = indicators(data_15m)
-    i5 = indicators(data_5m)
-    i1 = indicators(data_1m)
+i1 = indicators(data_1m)
+i5 = indicators(data_5m)
+i15 = indicators(data_15m)
 
+signal = "WAIT"
+trend = "NO DATA"
+price = 0
+rsi_val = 0
+
+if i1 and i5 and i15:
     price = round(i1["close"].iloc[-1], 5)
     rsi_val = round(i1["rsi"].iloc[-1], 1)
 
@@ -143,15 +156,8 @@ else:
     )
 
     # ================= RULE #5 — M1 ENTRY =================
-    bullish_entry = (
-        i1["macd"].iloc[-1] > i1["macd"].iloc[-2] and
-        i1["rsi"].iloc[-1] > 52
-    )
-
-    bearish_entry = (
-        i1["macd"].iloc[-1] < i1["macd"].iloc[-2] and
-        i1["rsi"].iloc[-1] < 48
-    )
+    bullish_entry = i1["macd"].iloc[-1] > i1["macd"].iloc[-2] and i1["rsi"].iloc[-1] > 52
+    bearish_entry = i1["macd"].iloc[-1] < i1["macd"].iloc[-2] and i1["rsi"].iloc[-1] < 48
 
     # ================= FINAL DECISION =================
     if trend == "BULLISH" and m5_confirm and bullish_entry:
@@ -161,7 +167,7 @@ else:
     else:
         signal = "WAIT"
 
-# ================= SIGNAL DISPLAY =================
+# ================= DISPLAY =================
 signal_class = {
     "BUY":"signal-buy",
     "SELL":"signal-sell",
@@ -171,7 +177,7 @@ signal_class = {
 st.markdown(f"""
 <div class="block center">
 <div class="{signal_class}">{signal}</div>
-<div class="metric">{asset_name} ({group})</div>
+<div class="metric">{asset_name} • {market}</div>
 <div class="metric">Trend (M15): {trend}</div>
 <div class="metric">RSI (M1): {rsi_val}</div>
 <div class="metric">Price: {price}</div>
@@ -182,15 +188,14 @@ st.markdown(f"""
 st.markdown("""
 <div class="block">
 <h4>Execution Rules</h4>
-• Trade ONLY in London / New York session<br>
-• Follow trend direction only<br>
+• Trade only London / New York session<br>
+• Trade WITH trend only<br>
 • Enter on next candle close<br>
-• M1 expiry → 30–60s<br>
-• M5 expiry → 3–5min<br>
-• If unsure → WAIT
+• M1 expiry: 30–60s<br>
+• M5 expiry: 3–5min<br>
+• If rules fail → WAIT
 </div>
 """, unsafe_allow_html=True)
 
 time.sleep(1)
 st.rerun()
-
