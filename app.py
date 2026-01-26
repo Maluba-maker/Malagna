@@ -13,17 +13,14 @@ APP_PASSWORD = "malagna2026"  # 🔴 CHANGE THIS
 def check_password():
     if "auth" not in st.session_state:
         st.session_state.auth = False
-
     if not st.session_state.auth:
         st.markdown("<h2 style='text-align:center'>🔐 Secure Access</h2>", unsafe_allow_html=True)
         pwd = st.text_input("Password", type="password")
-
         if pwd == APP_PASSWORD:
             st.session_state.auth = True
             st.rerun()
         elif pwd:
             st.error("Incorrect password")
-
         st.stop()
 
 check_password()
@@ -45,7 +42,7 @@ body { background:#0b0f14; color:white; }
 st.markdown("""
 <div class="block">
 <h1>Malagna</h1>
-<div class="metric">Rule-Based Multi-Timeframe Signal Engine (Real Markets Only)</div>
+<div class="metric">True M5 Entry Signal Engine (Real Markets Only)</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -80,7 +77,6 @@ MARKETS = {
     "Commodities":COMMODITIES
 }
 
-# ================= TRADINGVIEW SYMBOL MAP =================
 TV_SYMBOLS = {
     "EUR/USD":"FX:EURUSD","GBP/USD":"FX:GBPUSD","USD/JPY":"FX:USDJPY",
     "USD/CHF":"FX:USDCHF","AUD/USD":"FX:AUDUSD","USD/CAD":"FX:USDCAD",
@@ -101,38 +97,33 @@ TV_SYMBOLS = {
     "Copper":"COMEX:HG1!"
 }
 
-# ================= MARKET CONTROLS =================
+# ================= CONTROLS =================
 market = st.radio("Market Type", list(MARKETS.keys()), horizontal=True)
 asset_name = st.selectbox("Asset", list(MARKETS[market].keys()))
 
 symbol = MARKETS[market][asset_name]
 tv_symbol = TV_SYMBOLS.get(asset_name)
 
-# ================= TRADINGVIEW CHART (MAIN POSITION) =================
+# ================= TRADINGVIEW CHART =================
 st.markdown("<div class='block'>", unsafe_allow_html=True)
 if tv_symbol:
     st.components.v1.html(
         f"""
-        <iframe
-        src="https://s.tradingview.com/widgetembed/?symbol={tv_symbol}&interval=5&theme=dark&style=1&hideideas=1"
+        <iframe src="https://s.tradingview.com/widgetembed/?symbol={tv_symbol}&interval=1&theme=dark&style=1&hideideas=1"
         width="100%" height="460" frameborder="0"></iframe>
         """,
         height=480
     )
-else:
-    st.info("TradingView chart not available.")
 st.markdown("</div>", unsafe_allow_html=True)
 
 # ================= DATA =================
-@st.cache_data(ttl=30)
+@st.cache_data(ttl=60)
 def fetch(symbol, interval, period):
     return yf.download(symbol, interval=interval, period=period, progress=False)
 
-data_1m = fetch(symbol, "1m", "2d")
 data_5m = fetch(symbol, "5m", "5d")
 data_15m = fetch(symbol, "15m", "10d")
 
-# ================= INDICATORS =================
 def indicators(df):
     if df.empty or "Close" not in df:
         return None
@@ -150,13 +141,14 @@ def indicators(df):
         "macd": ta.trend.macd_diff(close)
     }
 
-i1, i5, i15 = indicators(data_1m), indicators(data_5m), indicators(data_15m)
+i5 = indicators(data_5m)
+i15 = indicators(data_15m)
 
 signal, trend, price, rsi_val = "WAIT", "NO DATA", 0, 0
 
-if i1 and i5 and i15:
-    price = round(i1["close"].iloc[-1], 5)
-    rsi_val = round(i1["rsi"].iloc[-1], 1)
+if i5 and i15:
+    price = round(i5["close"].iloc[-1], 5)
+    rsi_val = round(i5["rsi"].iloc[-1], 1)
 
     if i15["ema50"].iloc[-1] > i15["ema200"].iloc[-1]:
         trend = "BULLISH"
@@ -165,17 +157,23 @@ if i1 and i5 and i15:
     else:
         trend = "RANGE"
 
-    m5_ok = (
-        (trend == "BULLISH" and i5["close"].iloc[-1] > i5["ema50"].iloc[-1]) or
-        (trend == "BEARISH" and i5["close"].iloc[-1] < i5["ema50"].iloc[-1])
+    buy_entry = (
+        trend == "BULLISH" and
+        i5["close"].iloc[-1] > i5["ema50"].iloc[-1] and
+        i5["macd"].iloc[-1] > i5["macd"].iloc[-2] and
+        i5["rsi"].iloc[-1] > 50
     )
 
-    buy_trigger = i1["macd"].iloc[-1] > i1["macd"].iloc[-2] and i1["rsi"].iloc[-1] > 52
-    sell_trigger = i1["macd"].iloc[-1] < i1["macd"].iloc[-2] and i1["rsi"].iloc[-1] < 48
+    sell_entry = (
+        trend == "BEARISH" and
+        i5["close"].iloc[-1] < i5["ema50"].iloc[-1] and
+        i5["macd"].iloc[-1] < i5["macd"].iloc[-2] and
+        i5["rsi"].iloc[-1] < 50
+    )
 
-    if trend == "BULLISH" and m5_ok and buy_trigger:
+    if buy_entry:
         signal = "BUY"
-    elif trend == "BEARISH" and m5_ok and sell_trigger:
+    elif sell_entry:
         signal = "SELL"
 
 # ================= SIGNAL DISPLAY =================
@@ -186,10 +184,12 @@ st.markdown(f"""
 <div class="{signal_class}">{signal}</div>
 <div class="metric">{asset_name} • {market}</div>
 <div class="metric">Trend (M15): {trend}</div>
-<div class="metric">RSI (M1): {rsi_val}</div>
+<div class="metric">RSI (M5): {rsi_val}</div>
 <div class="metric">Price: {price}</div>
 </div>
 """, unsafe_allow_html=True)
 
 time.sleep(1)
 st.rerun()
+
+
