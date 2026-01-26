@@ -8,7 +8,7 @@ import time
 st.set_page_config(page_title="Malagna", layout="wide")
 
 # ================= PASSWORD =================
-APP_PASSWORD = "malagna2026"
+APP_PASSWORD = "malagna2026"  # 🔴 CHANGE THIS
 
 def check_password():
     if "auth" not in st.session_state:
@@ -42,46 +42,64 @@ body { background:#0b0f14; color:white; }
 st.markdown("""
 <div class="block">
 <h1>Malagna</h1>
-<div class="metric">Market-State Gated M5 Signal Engine</div>
+<div class="metric">Market-State Gated • True M5 Entry Engine</div>
 </div>
 """, unsafe_allow_html=True)
 
 # ================= ASSETS =================
 MARKETS = {
     "Currencies": {
-        "EUR/USD":"EURUSD=X","GBP/USD":"GBPUSD=X","USD/JPY":"JPY=X",
-        "AUD/USD":"AUDUSD=X","USD/CAD":"CAD=X"
+        "EUR/USD":"EURUSD=X",
+        "GBP/USD":"GBPUSD=X",
+        "USD/JPY":"JPY=X",
+        "AUD/USD":"AUDUSD=X",
+        "USD/CAD":"CAD=X"
     },
     "Crypto": {
-        "BTC/USD":"BTC-USD","ETH/USD":"ETH-USD"
+        "BTC/USD":"BTC-USD",
+        "ETH/USD":"ETH-USD"
     },
     "Stocks": {
-        "Apple":"AAPL","Microsoft":"MSFT","Nvidia":"NVDA"
+        "Apple":"AAPL",
+        "Microsoft":"MSFT",
+        "Nvidia":"NVDA"
     },
     "Commodities": {
-        "Gold":"GC=F","Crude Oil":"CL=F"
+        "Gold":"GC=F",
+        "Crude Oil":"CL=F"
     }
 }
 
 TV_SYMBOLS = {
-    "EUR/USD":"FX:EURUSD","GBP/USD":"FX:GBPUSD","USD/JPY":"FX:USDJPY",
-    "AUD/USD":"FX:AUDUSD","USD/CAD":"FX:USDCAD",
-    "BTC/USD":"BINANCE:BTCUSDT","ETH/USD":"BINANCE:ETHUSDT",
-    "Apple":"NASDAQ:AAPL","Microsoft":"NASDAQ:MSFT","Nvidia":"NASDAQ:NVDA",
-    "Gold":"COMEX:GC1!","Crude Oil":"NYMEX:CL1!"
+    "EUR/USD":"FX:EURUSD",
+    "GBP/USD":"FX:GBPUSD",
+    "USD/JPY":"FX:USDJPY",
+    "AUD/USD":"FX:AUDUSD",
+    "USD/CAD":"FX:USDCAD",
+    "BTC/USD":"BINANCE:BTCUSDT",
+    "ETH/USD":"BINANCE:ETHUSDT",
+    "Apple":"NASDAQ:AAPL",
+    "Microsoft":"NASDAQ:MSFT",
+    "Nvidia":"NASDAQ:NVDA",
+    "Gold":"COMEX:GC1!",
+    "Crude Oil":"NYMEX:CL1!"
 }
 
+# ================= CONTROLS =================
 market = st.radio("Market", list(MARKETS.keys()), horizontal=True)
 asset = st.selectbox("Asset", list(MARKETS[market].keys()))
+
 symbol = MARKETS[market][asset]
 tv_symbol = TV_SYMBOLS.get(asset)
 
-# ================= CHART =================
+# ================= TRADINGVIEW CHART =================
 st.markdown("<div class='block'>", unsafe_allow_html=True)
 st.components.v1.html(
     f"""
-    <iframe src="https://s.tradingview.com/widgetembed/?symbol={tv_symbol}&interval=5&theme=dark"
-    width="100%" height="450" frameborder="0"></iframe>
+    <iframe
+        src="https://s.tradingview.com/widgetembed/?symbol={tv_symbol}&interval=1&theme=dark&style=1&hideideas=1"
+        width="100%" height="450" frameborder="0">
+    </iframe>
     """,
     height=470
 )
@@ -115,87 +133,91 @@ def indicators(df):
 i5 = indicators(data_5m)
 i15 = indicators(data_15m)
 
-# ================= MARKET STATE DETECTION =================
 signal = "WAIT"
-state = "UNDEFINED"
-trend = "NONE"
+state = "WAIT"
+bias = "NONE"
 
+# ================= LOGIC =================
 if i5 and i15:
-    price = i5["close"].iloc[-1]
 
-    # ---- STRUCTURE (BIAS) ----
+    # ---- BIAS (M15) ----
     if i15["ema50"].iloc[-1] > i15["ema200"].iloc[-1]:
-        trend = "BULLISH"
+        bias = "BULLISH"
     elif i15["ema50"].iloc[-1] < i15["ema200"].iloc[-1]:
-        trend = "BEARISH"
+        bias = "BEARISH"
     else:
-        trend = "RANGE"
+        bias = "RANGE"
 
-    # ---- CANDLE TYPE ----
-    body = abs(i5["close"].iloc[-1] - i5["close"].iloc[-2])
-    full = data_5m["High"].iloc[-1] - data_5m["Low"].iloc[-1]
+    # ---- SAFE CANDLE CLASSIFICATION (M5) ----
+    open_  = float(data_5m["Open"].iloc[-1])
+    close_ = float(data_5m["Close"].iloc[-1])
+    high_  = float(data_5m["High"].iloc[-1])
+    low_   = float(data_5m["Low"].iloc[-1])
 
-    if body / full > 0.6:
-        candle = "IMPULSE"
-    elif body / full < 0.3:
+    body = abs(close_ - open_)
+    full = high_ - low_
+
+    if full == 0:
         candle = "NEUTRAL"
     else:
-        candle = "REJECTION"
+        ratio = body / full
+        if ratio >= 0.6:
+            candle = "IMPULSE"
+        elif ratio <= 0.3:
+            candle = "NEUTRAL"
+        else:
+            candle = "REJECTION"
+
+    price = close_
 
     # ---- MARKET STATE ----
-    if trend in ["BULLISH", "BEARISH"] and candle == "IMPULSE":
+    if bias in ["BULLISH", "BEARISH"] and candle == "IMPULSE":
         state = "TREND_EXPANSION"
-    elif trend in ["BULLISH", "BEARISH"] and candle != "IMPULSE":
+    elif bias in ["BULLISH", "BEARISH"]:
         state = "TREND_PULLBACK"
-    elif trend == "RANGE" and candle != "IMPULSE":
+    elif bias == "RANGE" and candle != "IMPULSE":
         state = "RANGE_EXTREME"
-    elif trend == "RANGE" and candle == "IMPULSE":
-        state = "VOLATILITY_SPIKE"
     else:
-        state = "RANGE_COMPRESSION"
+        state = "WAIT"
 
-    # ================= STATE-GATED DECISIONS =================
+    # ---- STATE-GATED SIGNALS ----
 
-    # ---- TREND EXPANSION ----
+    # Trend expansion
     if state == "TREND_EXPANSION":
-        if trend == "BULLISH" and i5["rsi"].iloc[-1] > 55 and i5["macd"].iloc[-1] > i5["macd"].iloc[-2]:
+        if bias == "BULLISH" and i5["rsi"].iloc[-1] > 55 and i5["macd"].iloc[-1] > i5["macd"].iloc[-2]:
             signal = "BUY"
-        elif trend == "BEARISH" and i5["rsi"].iloc[-1] < 45 and i5["macd"].iloc[-1] < i5["macd"].iloc[-2]:
+        elif bias == "BEARISH" and i5["rsi"].iloc[-1] < 45 and i5["macd"].iloc[-1] < i5["macd"].iloc[-2]:
             signal = "SELL"
 
-    # ---- TREND PULLBACK ----
+    # Trend pullback
     elif state == "TREND_PULLBACK":
-        if trend == "BULLISH" and price > i5["ema50"].iloc[-1] and i5["rsi"].iloc[-1] > 50:
+        if bias == "BULLISH" and price > i5["ema50"].iloc[-1] and i5["rsi"].iloc[-1] > 50:
             signal = "BUY"
-        elif trend == "BEARISH" and price < i5["ema50"].iloc[-1] and i5["rsi"].iloc[-1] < 50:
+        elif bias == "BEARISH" and price < i5["ema50"].iloc[-1] and i5["rsi"].iloc[-1] < 50:
             signal = "SELL"
 
-    # ---- RANGE EXTREMES ----
+    # Range extremes
     elif state == "RANGE_EXTREME":
         if i5["rsi"].iloc[-1] < 40:
             signal = "BUY"
         elif i5["rsi"].iloc[-1] > 60:
             signal = "SELL"
 
-    # ---- VOLATILITY SPIKE ----
-    elif state == "VOLATILITY_SPIKE":
-        signal = "WAIT"
-
 # ================= DISPLAY =================
-signal_class = {"BUY":"signal-buy","SELL":"signal-sell","WAIT":"signal-wait"}[signal]
+signal_class = {
+    "BUY":"signal-buy",
+    "SELL":"signal-sell",
+    "WAIT":"signal-wait"
+}[signal]
 
 st.markdown(f"""
 <div class="block center">
 <div class="{signal_class}">{signal}</div>
 <div class="metric">{asset} • {market}</div>
+<div class="metric">Bias (M15): {bias}</div>
 <div class="metric">Market State: {state}</div>
-<div class="metric">Bias (M15): {trend}</div>
 </div>
 """, unsafe_allow_html=True)
 
 time.sleep(1)
 st.rerun()
-
-
-
-
