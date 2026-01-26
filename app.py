@@ -306,6 +306,16 @@ def evaluate_pairs(structure, sr, candle, trend):
     MIN_RULES = 2        # minimum agreement
     MIN_SCORE = 170      # total confidence floor
 
+    # ---- LOCATION BLOCKER (✅ NEW ADDITION) ----
+    # Never buy into resistance
+    if buy_count >= MIN_RULES and sr["resistance"]:
+        return "WAIT", "Blocked BUY at resistance", 0
+
+    # Never sell into support
+    if sell_count >= MIN_RULES and sr["support"]:
+        return "WAIT", "Blocked SELL at support", 0
+
+    # ---- FINAL CONFLUENCE DECISION ----
     if buy_count >= MIN_RULES and buy_score > sell_score and buy_score >= MIN_SCORE:
         confidence = min(99, int(buy_score / buy_count))
         reason = f"{buy_count} rules aligned (BUY confluence)"
@@ -314,11 +324,11 @@ def evaluate_pairs(structure, sr, candle, trend):
     if sell_count >= MIN_RULES and sell_score > buy_score and sell_score >= MIN_SCORE:
         confidence = min(99, int(sell_score / sell_count))
         reason = f"{sell_count} rules aligned (SELL confluence)"
-        return "SELL", reason, confidence
+    return "SELL", reason, confidence
 
     return "WAIT", "Insufficient confluence", 0
 
-# ================= SIGNAL EVALUATION =================
+ # ================= SIGNAL EVALUATION =================
 signal = "WAIT"
 reason = "Not evaluated"
 confidence = 0
@@ -363,6 +373,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
