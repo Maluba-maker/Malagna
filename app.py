@@ -318,6 +318,13 @@ def evaluate_pairs(structure, sr, candle, trend):
 
     return "WAIT", "Insufficient confluence", 0
 
+# ================= SIGNAL EVALUATION =================
+signal = "WAIT"
+reason = "Not evaluated"
+confidence = 0
+
+signal, reason, confidence = evaluate_pairs(structure, sr, candle, trend)
+
 # ================= ENTRY & EXPIRY (✅ ADDED) =================
 entry_time = None
 expiry_time = None
@@ -356,6 +363,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
