@@ -25,6 +25,7 @@ def check_password():
         st.stop()
 
 check_password()
+tv_symbol = None
 
 # ================= STYLES =================
 st.markdown("""
@@ -344,6 +345,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
