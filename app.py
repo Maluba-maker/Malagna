@@ -101,14 +101,27 @@ TV_SYMBOLS = {
     "Copper":"COMEX:HG1!"
 }
 
-# ================= SELECTION =================
-st.markdown("<div class='block'><h3>Select Market</h3></div>", unsafe_allow_html=True)
-
+# ================= MARKET CONTROLS =================
 market = st.radio("Market Type", list(MARKETS.keys()), horizontal=True)
 asset_name = st.selectbox("Asset", list(MARKETS[market].keys()))
 
 symbol = MARKETS[market][asset_name]
 tv_symbol = TV_SYMBOLS.get(asset_name)
+
+# ================= TRADINGVIEW CHART (MAIN POSITION) =================
+st.markdown("<div class='block'>", unsafe_allow_html=True)
+if tv_symbol:
+    st.components.v1.html(
+        f"""
+        <iframe
+        src="https://s.tradingview.com/widgetembed/?symbol={tv_symbol}&interval=5&theme=dark&style=1&hideideas=1"
+        width="100%" height="460" frameborder="0"></iframe>
+        """,
+        height=480
+    )
+else:
+    st.info("TradingView chart not available.")
+st.markdown("</div>", unsafe_allow_html=True)
 
 # ================= DATA =================
 @st.cache_data(ttl=30)
@@ -119,19 +132,16 @@ data_1m = fetch(symbol, "1m", "2d")
 data_5m = fetch(symbol, "5m", "5d")
 data_15m = fetch(symbol, "15m", "10d")
 
-# ================= INDICATORS (FIXED) =================
+# ================= INDICATORS =================
 def indicators(df):
     if df.empty or "Close" not in df:
         return None
-
     close = df["Close"]
     if isinstance(close, pd.DataFrame):
         close = close.iloc[:, 0]
-
     close = close.astype(float)
     if len(close) < 200:
         return None
-
     return {
         "close": close,
         "ema50": ta.trend.ema_indicator(close, 50),
@@ -181,33 +191,5 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ================= TRADINGVIEW CHART =================
-with st.expander("📊 View TradingView Chart"):
-    if tv_symbol:
-        st.components.v1.html(
-            f"""
-            <iframe
-            src="https://s.tradingview.com/widgetembed/?symbol={tv_symbol}&interval=5&theme=dark&style=1&hideideas=1"
-            width="100%" height="460" frameborder="0"></iframe>
-            """,
-            height=480
-        )
-    else:
-        st.info("TradingView chart not available.")
-
-# ================= EXECUTION GUIDE =================
-st.markdown("""
-<div class="block">
-<h4>Execution Rules</h4>
-• Trade only London / New York sessions<br>
-• Trade WITH the trend only<br>
-• Enter on next candle close<br>
-• M1 expiry: 30–60s | M5 expiry: 3–5min<br>
-• If rules fail → WAIT
-</div>
-""", unsafe_allow_html=True)
-
 time.sleep(1)
 st.rerun()
-
-
