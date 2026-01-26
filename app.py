@@ -107,6 +107,34 @@ else:
     asset = st.text_input("Stock ticker (e.g. AAPL, TSLA, MSFT)").upper()
     symbol = asset
 
+# ================= TRADINGVIEW SYMBOL =================
+TV_SYMBOLS = {}
+
+# FX
+for k in CURRENCIES.keys():
+    TV_SYMBOLS[k] = f"FX:{k.replace('/','')}"
+
+# Crypto
+for k in CRYPTO.keys():
+    TV_SYMBOLS[k] = f"BINANCE:{k.replace('/','').replace('USD','USDT')}"
+
+# Commodities
+TV_SYMBOLS.update({
+    "Gold": "COMEX:GC1!",
+    "Silver": "COMEX:SI1!",
+    "Crude Oil": "NYMEX:CL1!",
+    "Brent Oil": "ICEEUR:BRN1!",
+    "Natural Gas": "NYMEX:NG1!",
+    "Copper": "COMEX:HG1!",
+    "Corn": "CBOT:ZC1!",
+    "Wheat": "CBOT:ZW1!"
+})
+
+if market == "Stocks" and asset:
+    tv_symbol = f"NASDAQ:{asset}"
+else:
+    tv_symbol = TV_SYMBOLS.get(asset)
+
 # ================= DATA =================
 @st.cache_data(ttl=60)
 def fetch(symbol, interval, period):
@@ -270,6 +298,24 @@ if signal in ["BUY","SELL"] and not data_5m.empty:
     entry_time = last_close.replace(minute=0, second=0, microsecond=0) + timedelta(minutes=minute)
     expiry_time = entry_time + timedelta(minutes=5)
 
+# ================= TRADINGVIEW CHART =================
+if tv_symbol:
+    st.markdown("<div class='block'>", unsafe_allow_html=True)
+    st.components.v1.html(
+        f"""
+        <iframe
+            src="https://s.tradingview.com/widgetembed/?symbol={tv_symbol}&interval=5&theme=dark&style=1&locale=en"
+            width="100%"
+            height="420"
+            frameborder="0"
+            allowtransparency="true"
+            scrolling="no">
+        </iframe>
+        """,
+        height=430,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+
 # ================= DISPLAY =================
 signal_class = {
     "BUY": "signal-buy",
@@ -298,5 +344,6 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
