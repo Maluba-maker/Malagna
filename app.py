@@ -108,24 +108,6 @@ else:
     asset = st.text_input("Stock ticker (e.g. AAPL, TSLA, MSFT)").upper()
     symbol = asset
 
-# ================= TRADINGVIEW CHART =================
-if tv_symbol:
-    st.markdown("<div class='block'>", unsafe_allow_html=True)
-    st.components.v1.html(
-        f"""
-        <iframe
-            src="https://s.tradingview.com/widgetembed/?symbol={tv_symbol}&interval=5&theme=dark&style=1&locale=en"
-            width="100%"
-            height="420"
-            frameborder="0"
-            allowtransparency="true"
-            scrolling="no">
-        </iframe>
-        """,
-        height=430,
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-
 # ================= TRADINGVIEW SYMBOL =================
 TV_SYMBOLS = {}
 
@@ -153,6 +135,24 @@ if market == "Stocks" and asset:
     tv_symbol = f"NASDAQ:{asset}"
 else:
     tv_symbol = TV_SYMBOLS.get(asset)
+
+# ================= TRADINGVIEW CHART =================
+if tv_symbol:
+    st.markdown("<div class='block'>", unsafe_allow_html=True)
+    st.components.v1.html(
+        f"""
+        <iframe
+            src="https://s.tradingview.com/widgetembed/?symbol={tv_symbol}&interval=5&theme=dark&style=1&locale=en"
+            width="100%"
+            height="420"
+            frameborder="0"
+            allowtransparency="true"
+            scrolling="no">
+        </iframe>
+        """,
+        height=430,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # ================= DATA =================
 @st.cache_data(ttl=60)
@@ -345,6 +345,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
