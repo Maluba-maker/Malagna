@@ -4,6 +4,9 @@ import ta
 import pandas as pd
 import time
 from datetime import datetime, timedelta 
+import requests
+from bs4 import BeautifulSoup
+import pytz
 
 # ================= PAGE CONFIG =================
 st.set_page_config(page_title="Malagna", layout="wide")
@@ -169,6 +172,59 @@ if tv_symbol:
 def fetch(symbol, interval, period):
     return yf.download(symbol, interval=interval, period=period, progress=False)
 
+def forex_factory_red_news(currencies, window_minutes=30):
+    """
+    Returns True if high-impact (red) news is within ±window_minutes
+    for the given currencies.
+    """
+    try:
+        url = "https://www.forexfactory.com/calendar"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        res = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(res.text, "html.parser")
+
+        now = datetime.utcnow().replace(tzinfo=pytz.UTC)
+
+        for row in soup.select("tr.calendar__row"):
+            impact = row.select_one(".impact span")
+            currency = row.select_one(".currency")
+            time_cell = row.select_one(".time")
+
+            if not impact or not currency or not time_cell:
+                continue
+
+            # High-impact only
+            if "high" not in impact.get("class", []):
+                continue
+
+            cur = currency.text.strip()
+            if cur not in currencies:
+                continue
+
+            time_text = time_cell.text.strip()
+            if time_text in ["All Day", "Tentative", ""]:
+                continue
+
+            event_time = datetime.strptime(time_text, "%H:%M")
+            event_time = event_time.replace(
+                year=now.year, month=now.month, day=now.day,
+                tzinfo=pytz.UTC
+            )
+
+            diff = abs((event_time - now).total_seconds()) / 60
+            if diff <= window_minutes:
+                return True
+
+    except Exception:
+        pass
+
+    return False
+
+
+def extract_currencies(asset):
+    if "/" in asset:
+        return asset.split("/")
+    return []
 data_5m  = fetch(symbol, "5m", "5d")
 
 def indicators(df):
@@ -358,6 +414,21 @@ confidence = 0
 
 signal, reason, confidence = evaluate_pairs(structure, sr, candle, trend)
 
+# ================= NEWS FILTER (FOREX FACTORY) =================
+news_note = ""
+currencies = extract_currencies(asset)
+
+if market == "Currencies" and currencies:
+    if forex_factory_red_news(currencies):
+        confidence = max(60, confidence - 20)
+        news_note = "⚠️ High-impact news nearby"
+
+        if confidence < 65:
+            signal = "WAIT"
+
+if news_note:
+    reason = f"{reason} • {news_note}"
+
 # ================= ENTRY & EXPIRY (✅ ADDED) =================
 entry_time = None
 expiry_time = None
@@ -396,6 +467,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
