@@ -237,88 +237,77 @@ if i15:
         structure = "BEARISH"
         trend = "DOWNTREND"
 
+# ================= VISUAL GATES =================
+def gatekeeper(structure, trend, sr, candle):
+    # Gate 1: No clarity
+    if structure == "RANGE" and trend == "FLAT":
+        return False, "Gate: No clear structure"
+
+    # Gate 2: Weak candle
+    if candle == "NEUTRAL":
+        return False, "Gate: Weak candle"
+
+    # Gate 3: Location conflict
+    if structure == "BULLISH" and sr["resistance"]:
+        return False, "Gate: Bullish into resistance"
+    if structure == "BEARISH" and sr["support"]:
+        return False, "Gate: Bearish into support"
+
+    return True, "Gates passed"
+
 # ================= 20-RULE ENGINE =================
 def evaluate_pairs(structure, sr, candle, trend):
+
+    # --------- GATES FIRST ---------
+    gates_ok, gate_reason = gatekeeper(structure, trend, sr, candle)
+    if not gates_ok:
+        return "WAIT", gate_reason, 0
+
     fired = []
 
-    # ---- CATEGORY A (TREND) ----
-    if structure == "BULLISH" and candle == "IMPULSE":
-        fired.append(("BUY", 88, "Pair 1: Bullish trend acceleration"))
-    if structure == "BULLISH" and trend == "UPTREND" and candle == "REJECTION":
-        fired.append(("BUY", 85, "Pair 2: Pullback in uptrend"))
+    # ---- TREND CONTINUATION (HIGHEST QUALITY) ----
     if structure == "BULLISH" and trend == "UPTREND" and candle == "IMPULSE":
-        fired.append(("BUY", 90, "Pair 3: Breakout continuation"))
-    if structure == "BEARISH" and candle == "IMPULSE":
-        fired.append(("SELL", 88, "Pair 4: Bearish trend acceleration"))
-    if structure == "BEARISH" and trend == "DOWNTREND" and candle == "REJECTION":
-        fired.append(("SELL", 85, "Pair 5: Pullback in downtrend"))
+        fired.append(("BUY", 92, "Trend continuation breakout"))
+    if structure == "BEARISH" and trend == "DOWNTREND" and candle == "IMPULSE":
+        fired.append(("SELL", 92, "Trend continuation breakdown"))
 
-    # ---- CATEGORY B (SR) ----
-    if sr["support"] and candle == "REJECTION":
-        fired.append(("BUY", 87, "Pair 6: Support rejection"))
-    if sr["resistance"] and candle == "REJECTION":
-        fired.append(("SELL", 87, "Pair 7: Resistance rejection"))
-    if sr["support"] and candle == "NEUTRAL" and structure == "BEARISH":
-        fired.append(("BUY", 90, "Pair 8: Sell exhaustion"))
-    if sr["resistance"] and candle == "NEUTRAL" and structure == "BULLISH":
-        fired.append(("SELL", 90, "Pair 9: Buy exhaustion"))
-    if sr["support"] and candle == "IMPULSE":
-        fired.append(("BUY", 84, "Pair 10: Support impulse"))
+    # ---- PULLBACKS FROM LEVELS ----
+    if structure == "BULLISH" and trend == "UPTREND" and sr["support"] and candle == "REJECTION":
+        fired.append(("BUY", 90, "Bullish pullback from support"))
+    if structure == "BEARISH" and trend == "DOWNTREND" and sr["resistance"] and candle == "REJECTION":
+        fired.append(("SELL", 90, "Bearish pullback from resistance"))
 
-    # ---- CATEGORY C (MEAN REVERSION) ----
-    if sr["support"] and candle == "NEUTRAL" and trend == "DOWNTREND":
-        fired.append(("BUY", 86, "Pair 11: Mean reversion low"))
-    if sr["resistance"] and candle == "NEUTRAL" and trend == "UPTREND":
-        fired.append(("SELL", 86, "Pair 12: Mean reversion high"))
-    if sr["support"] and candle == "REJECTION" and structure == "RANGE":
-        fired.append(("BUY", 88, "Pair 13: Oversold snapback"))
-    if sr["resistance"] and candle == "REJECTION" and structure == "RANGE":
-        fired.append(("SELL", 88, "Pair 14: Overbought snapback"))
-    if candle == "IMPULSE" and structure == "RANGE":
-        fired.append(("BUY", 83, "Pair 15: Volatility release"))
+    # ---- SR REJECTIONS ----
+    if sr["support"] and candle == "REJECTION" and structure != "BEARISH":
+        fired.append(("BUY", 88, "Support rejection"))
+    if sr["resistance"] and candle == "REJECTION" and structure != "BULLISH":
+        fired.append(("SELL", 88, "Resistance rejection"))
 
-    # ---- CATEGORY D (MOMENTUM) ----
-    if candle == "IMPULSE" and structure == "BULLISH" and trend == "UPTREND":
-        fired.append(("BUY", 84, "Pair 16: Momentum alignment up"))
-    if candle == "IMPULSE" and structure == "BEARISH" and trend == "DOWNTREND":
-        fired.append(("SELL", 84, "Pair 17: Momentum alignment down"))
-    if sr["support"] and structure == "BULLISH" and candle == "NEUTRAL":
-        fired.append(("BUY", 89, "Pair 18: Hidden accumulation"))
-    if sr["resistance"] and structure == "BEARISH" and candle == "NEUTRAL":
-        fired.append(("SELL", 89, "Pair 19: Distribution"))
-    if candle == "REJECTION" and trend in ["UPTREND", "DOWNTREND"]:
-        fired.append(("BUY" if trend == "UPTREND" else "SELL", 83, "Pair 20: Second-leg entry"))
+    # ---- RANGE EXTREMES (LOWER PRIORITY) ----
+    if structure == "RANGE" and sr["support"] and candle == "REJECTION":
+        fired.append(("BUY", 84, "Range low rejection"))
+    if structure == "RANGE" and sr["resistance"] and candle == "REJECTION":
+        fired.append(("SELL", 84, "Range high rejection"))
 
     if not fired:
-        return "WAIT", "No valid rule alignment", 0
+        return "WAIT", "No quality rule fired", 0
 
-    # ================= HYBRID DECISION =================
+    # --------- DOMINANT SIDE SCORING ---------
+    buys  = [r for r in fired if r[0] == "BUY"]
+    sells = [r for r in fired if r[0] == "SELL"]
 
-    buy_rules  = [r for r in fired if r[0] == "BUY"]
-    sell_rules = [r for r in fired if r[0] == "SELL"]
+    buy_score  = sum(r[1] for r in buys)
+    sell_score = sum(r[1] for r in sells)
 
-    buy_score  = sum(r[1] for r in buy_rules)
-    sell_score = sum(r[1] for r in sell_rules)
-
-    # ---- DOMINANT SIDE ----
     if buy_score == sell_score:
         return "WAIT", "No dominant side", 0
 
-    dominant = "BUY" if buy_score > sell_score else "SELL"
-    dominant_rules = buy_rules if dominant == "BUY" else sell_rules
-
-    # ---- EXECUTE HIGHEST CONFIDENCE RULE ON DOMINANT SIDE ----
+    dominant_rules = buys if buy_score > sell_score else sells
     dominant_rules.sort(key=lambda x: x[1], reverse=True)
+
     top = dominant_rules[0]
 
-    # ---- LOCATION BLOCKER ----
-    if dominant == "BUY" and sr["resistance"] and candle != "IMPULSE":
-        return "WAIT", "Blocked BUY at resistance", 0
-
-    if dominant == "SELL" and sr["support"] and candle != "IMPULSE":
-        return "WAIT", "Blocked SELL at support", 0
-
-    # ---- FINAL CONFIDENCE ----
+    # --------- FINAL CONFIDENCE ---------
     confidence = min(99, top[1] + (len(dominant_rules) - 1) * 3)
 
     return top[0], top[2], confidence
@@ -368,6 +357,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
