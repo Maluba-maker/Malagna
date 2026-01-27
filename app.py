@@ -245,7 +245,7 @@ def indicators(df):
 # ================= SHORT-TERM MOMENTUM (EMA20 SLOPE) =================
 ema20_slope = 0
 
-if i5 and len(i5["ema20"]) >= 3:
+if i5 is not None and "ema20" in i5 and len(i5["ema20"].dropna()) >= 3:
     ema20_slope = i5["ema20"].iloc[-1] - i5["ema20"].iloc[-3]
 
 # ================= SUPPORT / RESISTANCE (SIMPLE & SAFE) =================
@@ -253,7 +253,6 @@ sr = {
     "support": False,
     "resistance": False
 }
-
 if i5:
     recent_low  = i5["close"].rolling(20).min().iloc[-1]
     recent_high = i5["close"].rolling(20).max().iloc[-1]
@@ -268,7 +267,6 @@ if i5:
 def candle_type(df):
     if df is None or df.empty or len(df) < 2:
         return "NEUTRAL"
-
     try:
         o = float(df["Open"].iloc[-1])
         c = float(df["Close"].iloc[-1])
@@ -490,6 +488,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
