@@ -148,7 +148,6 @@ if market == "Stocks" and asset:
     tv_symbol = f"NASDAQ:{asset}"
 else:
     tv_symbol = TV_SYMBOLS.get(asset)
-
 # ================= TRADINGVIEW CHART =================
 if tv_symbol:
     st.markdown("<div class='block'>", unsafe_allow_html=True)
@@ -467,6 +466,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
