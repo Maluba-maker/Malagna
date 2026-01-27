@@ -236,9 +236,41 @@ if i15:
     elif i15["ema50"].iloc[-1] < i15["ema200"].iloc[-1]:
         structure = "BEARISH"
         trend = "DOWNTREND"
+# ================= VISUAL GATES =================
+def gatekeeper(structure, trend, candle, sr):
+    penalty = 0
+    notes = []
+
+    # Soft gate 1: Weak structure
+    if structure == "RANGE" and trend == "FLAT":
+        penalty += 12
+        notes.append("Low structure clarity")
+
+    # Soft gate 2: Neutral candle
+    if candle == "NEUTRAL":
+        penalty += 10
+        notes.append("Weak candle")
+
+    # Soft gate 3: Location conflict
+    if structure == "BULLISH" and sr["resistance"]:
+        penalty += 15
+        notes.append("Near resistance")
+    if structure == "BEARISH" and sr["support"]:
+        penalty += 15
+        notes.append("Near support")
+
+    return penalty, ", ".join(notes) if notes else "Clean setup"
 
 # ================= 20-RULE ENGINE =================
+
 def evaluate_pairs(structure, sr, candle, trend):
+
+    # --------- GATES FIRST ---------
+    gates_ok, gate_reason = gatekeeper(structure, trend, sr, candle)
+    if not gates_ok:
+        return "WAIT", gate_reason, 0
+
+    fired = []
 
     # ---- TREND CONTINUATION (HIGHEST QUALITY) ----
     if structure == "BULLISH" and trend == "UPTREND" and candle == "IMPULSE":
@@ -286,6 +318,11 @@ def evaluate_pairs(structure, sr, candle, trend):
     confidence = min(99, top[1] + (len(dominant_rules) - 1) * 3)
 
     return top[0], top[2], confidence
+    penalty, gate_note = gatekeeper(structure, trend, candle, sr)
+
+    signal, reason, confidence = execute_rules(fired, sr, candle)
+
+    confidence = max(60, confidence - penalty)
 
  # ================= SIGNAL EVALUATION =================
 signal = "WAIT"
@@ -332,6 +369,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
