@@ -225,14 +225,15 @@ def extract_currencies(asset):
         return asset.split("/")
     return []
 data_5m  = fetch(symbol, "5m", "5d")
-
 def indicators(df):
-    if df.empty or "Close" not in df:
+    if df is None or df.empty or "Close" not in df.columns:
         return None
+
     close = df["Close"]
     if isinstance(close, pd.DataFrame):
-        close = close.iloc[:,0]
+        close = close.iloc[:, 0]
     close = close.astype(float)
+
     return {
         "close": close,
         "ema20": ta.trend.ema_indicator(close, 20),
@@ -241,7 +242,8 @@ def indicators(df):
         "rsi": ta.momentum.rsi(close, 14),
         "macd": ta.trend.macd_diff(close)
     }
-    i5  = indicators(data_5m)
+i5 = indicators(data_5m)
+
 # ================= SHORT-TERM MOMENTUM (EMA20 SLOPE) =================
 ema20_slope = 0
 
@@ -490,6 +492,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
