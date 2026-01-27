@@ -237,24 +237,22 @@ if i15:
         structure = "BEARISH"
         trend = "DOWNTREND"
 # ================= VISUAL GATES =================
-def gatekeeper(structure, trend, candle, sr):
+def gatekeeper(structure, trend, sr, candle):
     penalty = 0
     notes = []
 
-    # Soft gate 1: Weak structure
     if structure == "RANGE" and trend == "FLAT":
         penalty += 12
         notes.append("Low structure clarity")
 
-    # Soft gate 2: Neutral candle
     if candle == "NEUTRAL":
         penalty += 10
         notes.append("Weak candle")
 
-    # Soft gate 3: Location conflict
     if structure == "BULLISH" and sr["resistance"]:
         penalty += 15
         notes.append("Near resistance")
+
     if structure == "BEARISH" and sr["support"]:
         penalty += 15
         notes.append("Near support")
@@ -265,41 +263,63 @@ def gatekeeper(structure, trend, candle, sr):
 
 def evaluate_pairs(structure, sr, candle, trend):
 
-    # --------- GATES FIRST ---------
-    gates_ok, gate_reason = gatekeeper(structure, trend, sr, candle)
-    if not gates_ok:
-        return "WAIT", gate_reason, 0
+    # --------- SOFT GATES ---------
+    penalty, gate_note = gatekeeper(structure, trend, sr, candle)
 
     fired = []
 
-    # ---- TREND CONTINUATION (HIGHEST QUALITY) ----
+    # ---- CATEGORY A (TREND) ----
+    if structure == "BULLISH" and candle == "IMPULSE":
+        fired.append(("BUY", 88, "Bullish trend acceleration"))
+    if structure == "BULLISH" and trend == "UPTREND" and candle == "REJECTION":
+        fired.append(("BUY", 85, "Pullback in uptrend"))
     if structure == "BULLISH" and trend == "UPTREND" and candle == "IMPULSE":
-        fired.append(("BUY", 92, "Trend continuation breakout"))
-    if structure == "BEARISH" and trend == "DOWNTREND" and candle == "IMPULSE":
-        fired.append(("SELL", 92, "Trend continuation breakdown"))
+        fired.append(("BUY", 90, "Breakout continuation"))
+    if structure == "BEARISH" and candle == "IMPULSE":
+        fired.append(("SELL", 88, "Bearish trend acceleration"))
+    if structure == "BEARISH" and trend == "DOWNTREND" and candle == "REJECTION":
+        fired.append(("SELL", 85, "Pullback in downtrend"))
 
-    # ---- PULLBACKS FROM LEVELS ----
-    if structure == "BULLISH" and trend == "UPTREND" and sr["support"] and candle == "REJECTION":
-        fired.append(("BUY", 90, "Bullish pullback from support"))
-    if structure == "BEARISH" and trend == "DOWNTREND" and sr["resistance"] and candle == "REJECTION":
-        fired.append(("SELL", 90, "Bearish pullback from resistance"))
+    # ---- CATEGORY B (SR) ----
+    if sr["support"] and candle == "REJECTION":
+        fired.append(("BUY", 87, "Support rejection"))
+    if sr["resistance"] and candle == "REJECTION":
+        fired.append(("SELL", 87, "Resistance rejection"))
+    if sr["support"] and candle == "NEUTRAL" and structure == "BEARISH":
+        fired.append(("BUY", 90, "Sell exhaustion"))
+    if sr["resistance"] and candle == "NEUTRAL" and structure == "BULLISH":
+        fired.append(("SELL", 90, "Buy exhaustion"))
+    if sr["support"] and candle == "IMPULSE":
+        fired.append(("BUY", 84, "Support impulse"))
 
-    # ---- SR REJECTIONS ----
-    if sr["support"] and candle == "REJECTION" and structure != "BEARISH":
-        fired.append(("BUY", 88, "Support rejection"))
-    if sr["resistance"] and candle == "REJECTION" and structure != "BULLISH":
-        fired.append(("SELL", 88, "Resistance rejection"))
+    # ---- CATEGORY C (MEAN REVERSION) ----
+    if sr["support"] and candle == "NEUTRAL" and trend == "DOWNTREND":
+        fired.append(("BUY", 86, "Mean reversion low"))
+    if sr["resistance"] and candle == "NEUTRAL" and trend == "UPTREND":
+        fired.append(("SELL", 86, "Mean reversion high"))
+    if sr["support"] and candle == "REJECTION" and structure == "RANGE":
+        fired.append(("BUY", 88, "Oversold snapback"))
+    if sr["resistance"] and candle == "REJECTION" and structure == "RANGE":
+        fired.append(("SELL", 88, "Overbought snapback"))
+    if candle == "IMPULSE" and structure == "RANGE":
+        fired.append(("BUY", 83, "Volatility release"))
 
-    # ---- RANGE EXTREMES (LOWER PRIORITY) ----
-    if structure == "RANGE" and sr["support"] and candle == "REJECTION":
-        fired.append(("BUY", 84, "Range low rejection"))
-    if structure == "RANGE" and sr["resistance"] and candle == "REJECTION":
-        fired.append(("SELL", 84, "Range high rejection"))
+    # ---- CATEGORY D (MOMENTUM) ----
+    if candle == "IMPULSE" and structure == "BULLISH" and trend == "UPTREND":
+        fired.append(("BUY", 84, "Momentum alignment up"))
+    if candle == "IMPULSE" and structure == "BEARISH" and trend == "DOWNTREND":
+        fired.append(("SELL", 84, "Momentum alignment down"))
+    if sr["support"] and structure == "BULLISH" and candle == "NEUTRAL":
+        fired.append(("BUY", 89, "Hidden accumulation"))
+    if sr["resistance"] and structure == "BEARISH" and candle == "NEUTRAL":
+        fired.append(("SELL", 89, "Distribution"))
+    if candle == "REJECTION" and trend in ["UPTREND", "DOWNTREND"]:
+        fired.append(("BUY" if trend == "UPTREND" else "SELL", 83, "Second-leg entry"))
 
     if not fired:
-        return "WAIT", "No quality rule fired", 0
+        return "WAIT", "No valid rule alignment", 0
 
-    # --------- DOMINANT SIDE SCORING ---------
+    # --------- DOMINANT SIDE ---------
     buys  = [r for r in fired if r[0] == "BUY"]
     sells = [r for r in fired if r[0] == "SELL"]
 
@@ -311,18 +331,16 @@ def evaluate_pairs(structure, sr, candle, trend):
 
     dominant_rules = buys if buy_score > sell_score else sells
     dominant_rules.sort(key=lambda x: x[1], reverse=True)
-
     top = dominant_rules[0]
 
-    # --------- FINAL CONFIDENCE ---------
+    # --------- FINAL CONFIDENCE (APPLY PENALTY) ---------
     confidence = min(99, top[1] + (len(dominant_rules) - 1) * 3)
-
-    return top[0], top[2], confidence
-    penalty, gate_note = gatekeeper(structure, trend, candle, sr)
-
-    signal, reason, confidence = execute_rules(fired, sr, candle)
-
     confidence = max(60, confidence - penalty)
+
+    if confidence < 65:
+        return "WAIT", f"Weak setup ({gate_note})", confidence
+
+    return top[0], f"{top[2]} • {gate_note}", confidence
 
  # ================= SIGNAL EVALUATION =================
 signal = "WAIT"
@@ -369,6 +387,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
