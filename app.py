@@ -235,13 +235,18 @@ def indicators(df):
     close = close.astype(float)
     return {
         "close": close,
+        "ema20": ta.trend.ema_indicator(close, 20),
         "ema50": ta.trend.ema_indicator(close, 50),
         "ema200": ta.trend.ema_indicator(close, 200),
         "rsi": ta.momentum.rsi(close, 14),
         "macd": ta.trend.macd_diff(close)
     }
+    i5  = indicators(data_5m)
+# ================= SHORT-TERM MOMENTUM (EMA20 SLOPE) =================
+ema20_slope = 0
 
-i5  = indicators(data_5m)
+if i5 and len(i5["ema20"]) >= 3:
+    ema20_slope = i5["ema20"].iloc[-1] - i5["ema20"].iloc[-3]
 
 # ================= SUPPORT / RESISTANCE (SIMPLE & SAFE) =================
 sr = {
@@ -396,11 +401,30 @@ def evaluate_pairs(structure, sr, candle, trend):
     dominant_rules = buys if buy_score > sell_score else sells
     dominant_rules.sort(key=lambda x: x[1], reverse=True)
     top = dominant_rules[0]
+    # --------- TIMING FILTER (PULLBACK PROTECTION) ---------
+    if top[0] == "SELL":
+        if i5["close"].iloc[-1] > i5["ema20"].iloc[-1]:
+            confidence = top[1] + (len(dominant_rules) - 1) * 3
+            confidence -= 15
+            gate_note += " • Pullback up (wait for rollover)"
+
+        if ema20_slope > 0:
+            confidence -= 10
+            gate_note += " • Short-term momentum up"
+
+    if top[0] == "BUY":
+        if i5["close"].iloc[-1] < i5["ema20"].iloc[-1]:
+            confidence = top[1] + (len(dominant_rules) - 1) * 3
+            confidence -= 15
+            gate_note += " • Pullback down (wait for bounce)"
+
+        if ema20_slope < 0:
+            confidence -= 10
+            gate_note += " • Short-term momentum down"
 
     # --------- FINAL CONFIDENCE (APPLY PENALTY) ---------
-    confidence = min(99, top[1] + (len(dominant_rules) - 1) * 3)
-    confidence = max(60, confidence - penalty)
-
+    confidence = min(99, confidence - penalty)
+    confidence = max(60, confidence)
     if confidence < 65:
         return "WAIT", f"Weak setup ({gate_note})", confidence
 
@@ -466,6 +490,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
