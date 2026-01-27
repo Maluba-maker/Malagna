@@ -237,33 +237,8 @@ if i15:
         structure = "BEARISH"
         trend = "DOWNTREND"
 
-# ================= VISUAL GATES =================
-def gatekeeper(structure, trend, sr, candle):
-    # Gate 1: No clarity
-    if structure == "RANGE" and trend == "FLAT":
-        return False, "Gate: No clear structure"
-
-    # Gate 2: Weak candle
-    if candle == "NEUTRAL":
-        return False, "Gate: Weak candle"
-
-    # Gate 3: Location conflict
-    if structure == "BULLISH" and sr["resistance"]:
-        return False, "Gate: Bullish into resistance"
-    if structure == "BEARISH" and sr["support"]:
-        return False, "Gate: Bearish into support"
-
-    return True, "Gates passed"
-
 # ================= 20-RULE ENGINE =================
 def evaluate_pairs(structure, sr, candle, trend):
-
-    # --------- GATES FIRST ---------
-    gates_ok, gate_reason = gatekeeper(structure, trend, sr, candle)
-    if not gates_ok:
-        return "WAIT", gate_reason, 0
-
-    fired = []
 
     # ---- TREND CONTINUATION (HIGHEST QUALITY) ----
     if structure == "BULLISH" and trend == "UPTREND" and candle == "IMPULSE":
@@ -357,6 +332,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
