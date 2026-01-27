@@ -49,6 +49,16 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
+# ================= USER NOTE =================
+st.markdown("""
+<div class="block small">
+⚠️ <b>Important Note</b><br>
+Signals are generated using <b>M5 price action only</b>.<br>
+Always confirm with your own analysis, trend context, and risk management.<br>
+This tool supports decisions — it does not replace them.
+</div>
+""", unsafe_allow_html=True)
+
 # ================= MARKETS =================
 CURRENCIES = {
     "EUR/JPY": "EURJPY=X",
@@ -160,7 +170,6 @@ def fetch(symbol, interval, period):
     return yf.download(symbol, interval=interval, period=period, progress=False)
 
 data_5m  = fetch(symbol, "5m", "5d")
-data_15m = fetch(symbol, "15m", "10d")
 
 def indicators(df):
     if df.empty or "Close" not in df:
@@ -178,7 +187,6 @@ def indicators(df):
     }
 
 i5  = indicators(data_5m)
-i15 = indicators(data_15m)
 
 # ================= SUPPORT / RESISTANCE (SIMPLE & SAFE) =================
 sr = {
@@ -229,13 +237,14 @@ candle = candle_type(data_5m)
 structure = "RANGE"
 trend = "FLAT"
 
-if i15:
-    if i15["ema50"].iloc[-1] > i15["ema200"].iloc[-1]:
+if i5:
+    if i5["ema50"].iloc[-1] > i5["ema200"].iloc[-1]:
         structure = "BULLISH"
         trend = "UPTREND"
-    elif i15["ema50"].iloc[-1] < i15["ema200"].iloc[-1]:
+    elif i5["ema50"].iloc[-1] < i5["ema200"].iloc[-1]:
         structure = "BEARISH"
         trend = "DOWNTREND"
+        
 # ================= VISUAL GATES =================
 def gatekeeper(structure, trend, sr, candle):
     penalty = 0
@@ -383,10 +392,11 @@ st.markdown(f"""
 
   <div class="small">{reason}</div>
   <div class="small">
-    Bias (M15): {structure} • Trend: {trend} • Candle: {candle}
+    Bias (M5): {structure} • Trend: {trend} • Candle: {candle}
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
