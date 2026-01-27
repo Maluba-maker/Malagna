@@ -245,8 +245,10 @@ def indicators(df):
 # ================= SHORT-TERM MOMENTUM (EMA20 SLOPE) =================
 ema20_slope = 0
 
-if i5 is not None and "ema20" in i5 and len(i5["ema20"].dropna()) >= 3:
-    ema20_slope = i5["ema20"].iloc[-1] - i5["ema20"].iloc[-3]
+if i5 is not None:
+    ema20 = i5.get("ema20")
+    if ema20 is not None and len(ema20.dropna()) >= 3:
+        ema20_slope = ema20.iloc[-1] - ema20.iloc[-3]
 
 # ================= SUPPORT / RESISTANCE (SIMPLE & SAFE) =================
 sr = {
@@ -488,6 +490,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
