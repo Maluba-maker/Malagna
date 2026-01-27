@@ -403,6 +403,10 @@ def evaluate_pairs(structure, sr, candle, trend):
     dominant_rules = buys if buy_score > sell_score else sells
     dominant_rules.sort(key=lambda x: x[1], reverse=True)
     top = dominant_rules[0]
+
+# --------- BASE CONFIDENCE (ALWAYS INITIALIZED) ---------
+confidence = top[1] + (len(dominant_rules) - 1) * 3
+
     # --------- TIMING FILTER (PULLBACK PROTECTION) ---------
     if top[0] == "SELL":
         if i5["close"].iloc[-1] > i5["ema20"].iloc[-1]:
@@ -492,6 +496,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
