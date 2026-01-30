@@ -1,5 +1,5 @@
-import MetaTrader5 as mt5
-import streamlit as st
+import streamlit as st 
+import yfinance as yf
 import ta
 import pandas as pd
 import time
@@ -28,11 +28,6 @@ def check_password():
         st.stop()
 
 check_password()
-
-if not mt5.initialize():
-    st.error("MT5 is not connected. Please open MT5 and log in.")
-    st.stop()
-
 tv_symbol = None
 
 # ================= STYLES =================
@@ -69,31 +64,26 @@ This tool supports decisions — it does not replace them.
 
 # ================= MARKETS =================
 CURRENCIES = {
-    "EUR/USD": "EURUSD",
-    "GBP/USD": "GBPUSD",
-    "USD/JPY": "USDJPY",
-    "USD/CHF": "USDCHF",
-    "USD/CAD": "USDCAD",
-    "AUD/USD": "AUDUSD",
-    "NZD/USD": "NZDUSD",
-
-    "EUR/GBP": "EURGBP",
-    "EUR/JPY": "EURJPY",
-    "EUR/CHF": "EURCHF",
-    "EUR/AUD": "EURAUD",
-    "EUR/CAD": "EURCAD",
-
-    "GBP/JPY": "GBPJPY",
-    "GBP/CHF": "GBPCHF",
-    "GBP/AUD": "GBPAUD",
-    "GBP/CAD": "GBPCAD",
-
-    "AUD/JPY": "AUDJPY",
-    "AUD/CAD": "AUDCAD",
-    "AUD/CHF": "AUDCHF",
-
-    "CAD/JPY": "CADJPY",
-    "CHF/JPY": "CHFJPY"
+    "EUR/JPY": "EURJPY=X",
+    "EUR/GBP": "EURGBP=X",
+    "USD/JPY": "JPY=X",
+    "GBP/USD": "GBPUSD=X",
+    "AUD/CAD": "AUDCAD=X",
+    "AUD/CHF": "AUDCHF=X",
+    "GBP/AUD": "GBPAUD=X",
+    "EUR/USD": "EURUSD=X",
+    "AUD/JPY": "AUDJPY=X",
+    "AUD/USD": "AUDUSD=X",
+    "EUR/CHF": "EURCHF=X",
+    "GBP/CHF": "GBPCHF=X",
+    "CHF/JPY": "CHFJPY=X",
+    "EUR/AUD": "EURAUD=X",
+    "GBP/JPY": "GBPJPY=X",
+    "EUR/CAD": "EURCAD=X",
+    "USD/CAD": "CAD=X",
+    "GBP/CAD": "GBPCAD=X",
+    "USD/CHF": "CHF=X",
+    "CAD/JPY": "CADJPY=X"
 }
 
 CRYPTO = {
@@ -158,6 +148,7 @@ if market == "Stocks" and asset:
     tv_symbol = f"NASDAQ:{asset}"
 else:
     tv_symbol = TV_SYMBOLS.get(asset)
+
 # ================= TRADINGVIEW CHART =================
 if tv_symbol:
     st.markdown("<div class='block'>", unsafe_allow_html=True)
@@ -177,32 +168,9 @@ if tv_symbol:
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ================= DATA =================
-
-@st.cache_data(ttl=10)
-def fetch_mt5(symbol, bars=300):
-    rates = mt5.copy_rates_from_pos(
-        symbol,
-        mt5.TIMEFRAME_M5,
-        0,
-        bars
-    )
-
-    if rates is None:
-        return None
-
-    df = pd.DataFrame(rates)
-    df['time'] = pd.to_datetime(df['time'], unit='s')
-    df.set_index('time', inplace=True)
-
-    df.rename(columns={
-        "open": "Open",
-        "high": "High",
-        "low": "Low",
-        "close": "Close",
-        "tick_volume": "Volume"
-    }, inplace=True)
-
-    return df
+@st.cache_data(ttl=60)
+def fetch(symbol, interval, period):
+    return yf.download(symbol, interval=interval, period=period, progress=False)
 
 def forex_factory_red_news(currencies, window_minutes=30):
     """
@@ -252,15 +220,13 @@ def forex_factory_red_news(currencies, window_minutes=30):
 
     return False
 
+
 def extract_currencies(asset):
     if "/" in asset:
         return asset.split("/")
     return []
-if market == "Currencies":
-    mt5_symbol = CURRENCIES[asset]
-    data_5m = fetch_mt5(mt5_symbol)
-else:
-    data_5m = None
+
+data_5m  = fetch(symbol, "5m", "5d")
 
 def indicators(df):
     if df is None or df.empty or "Close" not in df.columns:
@@ -279,6 +245,7 @@ def indicators(df):
         "rsi": ta.momentum.rsi(close, 14),
         "macd": ta.trend.macd_diff(close)
     }
+
 i5 = indicators(data_5m)
 
 # ================= SHORT-TERM MOMENTUM (EMA20 SLOPE) =================
@@ -288,6 +255,18 @@ if i5 is not None:
     ema20 = i5.get("ema20")
     if ema20 is not None and len(ema20.dropna()) >= 3:
         ema20_slope = ema20.iloc[-1] - ema20.iloc[-3]
+
+# ================= MARKET ACTIVITY =================
+market_active = True
+activity_note = ""
+
+if i5:
+    recent_move = abs(i5["close"].iloc[-1] - i5["close"].iloc[-6])
+    avg_move = i5["close"].diff().abs().rolling(10).mean().iloc[-1]
+
+    if avg_move > 0 and recent_move < avg_move * 0.6:
+        market_active = False
+        activity_note = "Low momentum"
 
 # ================= SUPPORT / RESISTANCE (SIMPLE & SAFE) =================
 sr = {
@@ -330,7 +309,7 @@ def candle_type(df):
     else:
         return "REJECTION"
 
-candle = candle_type(data_5m)
+candle = candle_type(data_5m.iloc[:-1])
 
 # ================= STRUCTURE & TREND =================
 structure = "RANGE"
@@ -465,19 +444,33 @@ def evaluate_pairs(structure, sr, candle, trend):
 
     # --------- FINAL CONFIDENCE (APPLY PENALTY) ---------
     confidence = min(99, confidence - penalty)
-    confidence = max(60, confidence)
+    if not market_active:
+        confidence -= 8
 
+    confidence = max(60, confidence)
+    
     if confidence < 65:
         return "WAIT", f"Weak setup ({gate_note})", confidence
 
     return top[0], f"{top[2]} • {gate_note}", confidence
 
- # ================= SIGNAL EVALUATION =================
+# ================= SIGNAL EVALUATION =================
 signal = "WAIT"
 reason = "Not evaluated"
 confidence = 0
 
 signal, reason, confidence = evaluate_pairs(structure, sr, candle, trend)
+
+# ================= SIGNAL MEMORY =================
+if "last_signal" not in st.session_state:
+    st.session_state.last_signal = None
+
+if signal == st.session_state.last_signal and signal != "WAIT":
+    signal = "WAIT"
+    reason = "Awaiting confirmation"
+    confidence = max(60, confidence - 10)
+
+st.session_state.last_signal = signal
 
 # ================= NEWS FILTER (FOREX FACTORY) =================
 news_note = ""
@@ -493,6 +486,9 @@ if market == "Currencies" and currencies:
 
 if news_note:
     reason = f"{reason} • {news_note}"
+
+if signal == "WAIT" and not market_active and activity_note:
+    reason = f"{reason} • {activity_note}"
 
 # ================= ENTRY & EXPIRY (✅ ADDED) =================
 entry_time = None
@@ -532,28 +528,4 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
