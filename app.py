@@ -1,5 +1,5 @@
+import MetaTrader5 as mt5
 import streamlit as st
-import yfinance as yf
 import ta
 import pandas as pd
 import time
@@ -28,6 +28,11 @@ def check_password():
         st.stop()
 
 check_password()
+
+if not mt5.initialize():
+    st.error("MT5 is not connected. Please open MT5 and log in.")
+    st.stop()
+
 tv_symbol = None
 
 # ================= STYLES =================
@@ -64,26 +69,31 @@ This tool supports decisions — it does not replace them.
 
 # ================= MARKETS =================
 CURRENCIES = {
-    "EUR/JPY": "EURJPY=X",
-    "EUR/GBP": "EURGBP=X",
-    "USD/JPY": "JPY=X",
-    "GBP/USD": "GBPUSD=X",
-    "AUD/CAD": "AUDCAD=X",
-    "AUD/CHF": "AUDCHF=X",
-    "GBP/AUD": "GBPAUD=X",
-    "EUR/USD": "EURUSD=X",
-    "AUD/JPY": "AUDJPY=X",
-    "AUD/USD": "AUDUSD=X",
-    "EUR/CHF": "EURCHF=X",
-    "GBP/CHF": "GBPCHF=X",
-    "CHF/JPY": "CHFJPY=X",
-    "EUR/AUD": "EURAUD=X",
-    "GBP/JPY": "GBPJPY=X",
-    "EUR/CAD": "EURCAD=X",
-    "USD/CAD": "CAD=X",
-    "GBP/CAD": "GBPCAD=X",
-    "USD/CHF": "CHF=X",
-    "CAD/JPY": "CADJPY=X"
+    "EUR/USD": "EURUSD",
+    "GBP/USD": "GBPUSD",
+    "USD/JPY": "USDJPY",
+    "USD/CHF": "USDCHF",
+    "USD/CAD": "USDCAD",
+    "AUD/USD": "AUDUSD",
+    "NZD/USD": "NZDUSD",
+
+    "EUR/GBP": "EURGBP",
+    "EUR/JPY": "EURJPY",
+    "EUR/CHF": "EURCHF",
+    "EUR/AUD": "EURAUD",
+    "EUR/CAD": "EURCAD",
+
+    "GBP/JPY": "GBPJPY",
+    "GBP/CHF": "GBPCHF",
+    "GBP/AUD": "GBPAUD",
+    "GBP/CAD": "GBPCAD",
+
+    "AUD/JPY": "AUDJPY",
+    "AUD/CAD": "AUDCAD",
+    "AUD/CHF": "AUDCHF",
+
+    "CAD/JPY": "CADJPY",
+    "CHF/JPY": "CHFJPY"
 }
 
 CRYPTO = {
@@ -167,9 +177,32 @@ if tv_symbol:
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ================= DATA =================
-@st.cache_data(ttl=60)
-def fetch(symbol, interval, period):
-    return yf.download(symbol, interval=interval, period=period, progress=False)
+
+@st.cache_data(ttl=10)
+def fetch_mt5(symbol, bars=300):
+    rates = mt5.copy_rates_from_pos(
+        symbol,
+        mt5.TIMEFRAME_M5,
+        0,
+        bars
+    )
+
+    if rates is None:
+        return None
+
+    df = pd.DataFrame(rates)
+    df['time'] = pd.to_datetime(df['time'], unit='s')
+    df.set_index('time', inplace=True)
+
+    df.rename(columns={
+        "open": "Open",
+        "high": "High",
+        "low": "Low",
+        "close": "Close",
+        "tick_volume": "Volume"
+    }, inplace=True)
+
+    return df
 
 def forex_factory_red_news(currencies, window_minutes=30):
     """
@@ -219,12 +252,16 @@ def forex_factory_red_news(currencies, window_minutes=30):
 
     return False
 
-
 def extract_currencies(asset):
     if "/" in asset:
         return asset.split("/")
     return []
-data_5m  = fetch(symbol, "5m", "5d")
+if market == "Currencies":
+    mt5_symbol = CURRENCIES[asset]
+    data_5m = fetch_mt5(mt5_symbol)
+else:
+    data_5m = None
+
 def indicators(df):
     if df is None or df.empty or "Close" not in df.columns:
         return None
@@ -495,6 +532,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
