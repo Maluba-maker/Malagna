@@ -392,61 +392,71 @@ def evaluate_pairs(structure, sr, candle, trend, market_phase):
         return "WAIT", "No-trade market phase", 0
 
     # ---- CATEGORY A (TREND) ----
-    if market_phase == "TREND_CONTINUATION":
-        if structure == "BULLISH" and candle == "IMPULSE":
-            fired.append(("BUY", 88, "Bullish trend continuation"))
-        if structure == "BEARISH" and candle == "IMPULSE":
-        fired.append(("SELL", 88, "Bearish trend continuation"))
-    if market_phase == "PULLBACK":
-        if trend == "UPTREND" and candle in ["REJECTION", "NEUTRAL"]:
-            fired.append(("SELL", 70, "Counter-trend pullback"))
-        if trend == "DOWNTREND" and candle in ["REJECTION", "NEUTRAL"]:
-            fired.append(("BUY", 70, "Counter-trend pullback"))
-    if structure == "BULLISH" and trend == "UPTREND" and candle == "IMPULSE":
-        fired.append(("BUY", 90, "Breakout continuation"))
+  
+    # === TREND CONTINUATION MODE ===
+if market_phase == "TREND_CONTINUATION":
+
+    if structure == "BULLISH" and candle == "IMPULSE":
+        fired.append(("BUY", 88, "Bullish trend continuation"))
+
     if structure == "BEARISH" and candle == "IMPULSE":
-        fired.append(("SELL", 88, "Bearish trend acceleration"))
-    if structure == "BEARISH" and trend == "DOWNTREND" and candle == "REJECTION":
-        fired.append(("SELL", 85, "Pullback in downtrend"))
+        fired.append(("SELL", 88, "Bearish trend continuation"))
+
+# === PULLBACK MODE (COUNTER-TREND) ===
+elif market_phase == "PULLBACK":
+
+    if trend == "UPTREND" and candle in ["REJECTION", "NEUTRAL"]:
+        fired.append(("SELL", 70, "Counter-trend pullback"))
+
+    if trend == "DOWNTREND" and candle in ["REJECTION", "NEUTRAL"]:
+        fired.append(("BUY", 70, "Counter-trend pullback"))
 
     # ---- CATEGORY B (SR) ----
-    if sr["support"] and candle == "REJECTION":
-        fired.append(("BUY", 87, "Support rejection"))
-    if sr["resistance"] and candle == "REJECTION":
-        fired.append(("SELL", 87, "Resistance rejection"))
-    if sr["support"] and candle == "NEUTRAL" and structure == "BEARISH":
-        fired.append(("BUY", 90, "Sell exhaustion"))
-    if sr["resistance"] and candle == "NEUTRAL" and structure == "BULLISH":
-        fired.append(("SELL", 90, "Buy exhaustion"))
-    if sr["support"] and candle == "IMPULSE":
-        fired.append(("BUY", 84, "Support impulse"))
+    # === TREND CONTINUATION: SR CONFIRMATION ONLY ===
+    if market_phase == "TREND_CONTINUATION":
+
+        if trend == "UPTREND" and sr["support"] and candle == "REJECTION":
+            fired.append(("BUY", 86, "Support hold in uptrend"))
+
+        if trend == "DOWNTREND" and sr["resistance"] and candle == "REJECTION":
+            fired.append(("SELL", 86, "Resistance hold in downtrend"))
+
+    # === PULLBACK MODE: COUNTER-TREND FROM EXTREMES ===
+    elif market_phase == "PULLBACK":
+
+        if trend == "UPTREND" and sr["resistance"] and candle in ["REJECTION", "NEUTRAL"]:
+            fired.append(("SELL", 72, "Pullback rejection at resistance"))
+
+        if trend == "DOWNTREND" and sr["support"] and candle in ["REJECTION", "NEUTRAL"]:
+            fired.append(("BUY", 72, "Pullback rejection at support"))
 
     # ---- CATEGORY C (MEAN REVERSION) ----
-    if sr["support"] and candle == "NEUTRAL" and trend == "DOWNTREND":
-        fired.append(("BUY", 86, "Mean reversion low"))
-    if sr["resistance"] and candle == "NEUTRAL" and trend == "UPTREND":
-        fired.append(("SELL", 86, "Mean reversion high"))
-    if sr["support"] and candle == "REJECTION" and structure == "RANGE":
-        fired.append(("BUY", 88, "Oversold snapback"))
-    if sr["resistance"] and candle == "REJECTION" and structure == "RANGE":
-        fired.append(("SELL", 88, "Overbought snapback"))
-    if candle == "IMPULSE" and structure == "RANGE":
-        fired.append(("BUY", 83, "Volatility release"))
+    
+    if market_phase == "NO_TRADE":
+        if sr["support"] and candle in ["NEUTRAL", "REJECTION"]:
+            fired.append(("BUY", 75, "Range mean reversion (support)"))
 
-    # ---- CATEGORY D (MOMENTUM) ----
-    if candle == "IMPULSE" and structure == "BULLISH" and trend == "UPTREND":
-        fired.append(("BUY", 84, "Momentum alignment up"))
-    if candle == "IMPULSE" and structure == "BEARISH" and trend == "DOWNTREND":
-        fired.append(("SELL", 84, "Momentum alignment down"))
-    if sr["support"] and structure == "BULLISH" and candle == "NEUTRAL":
-        fired.append(("BUY", 89, "Hidden accumulation"))
-    if sr["resistance"] and structure == "BEARISH" and candle == "NEUTRAL":
-        fired.append(("SELL", 89, "Distribution"))
-    if candle == "REJECTION" and trend in ["UPTREND", "DOWNTREND"]:
-        fired.append(("BUY" if trend == "UPTREND" else "SELL", 83, "Second-leg entry"))
+    if sr["resistance"] and candle in ["NEUTRAL", "REJECTION"]:
+        fired.append(("SELL", 75, "Range mean reversion (resistance)"))
+    
+   # ---- CATEGORY D (MOMENTUM) ----
+   momentum_bonus = 0
 
-    if not fired:
-        return "WAIT", "No valid rule alignment", 0
+    if market_phase == "TREND_CONTINUATION":
+
+        if candle == "IMPULSE":
+            momentum_bonus += 6
+
+        if ema20_slope > 0 and trend == "UPTREND":
+            momentum_bonus += 4
+
+        if ema20_slope < 0 and trend == "DOWNTREND":
+            momentum_bonus += 4
+
+    elif market_phase == "PULLBACK":
+
+        if candle == "REJECTION":
+            momentum_bonus += 3
 
     # --------- DOMINANT SIDE ---------
     buys  = [r for r in fired if r[0] == "BUY"]
@@ -579,5 +589,6 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
