@@ -386,6 +386,7 @@ def evaluate_pairs(structure, sr, candle, trend, market_phase):
     penalty, gate_note = gatekeeper(structure, trend, sr, candle)
 
     fired = []
+    momentum_bonus = 0
    
     # ================= PHASE FILTER =================
     if market_phase == "NO_TRADE":
@@ -589,6 +590,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
