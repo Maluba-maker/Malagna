@@ -440,24 +440,24 @@ elif market_phase == "PULLBACK":
     if sr["resistance"] and candle in ["NEUTRAL", "REJECTION"]:
         fired.append(("SELL", 75, "Range mean reversion (resistance)"))
     
-   # ---- CATEGORY D (MOMENTUM) ----
-   momentum_bonus = 0
+    # ---- CATEGORY D (MOMENTUM) ----
+    momentum_bonus = 0
 
-    if market_phase == "TREND_CONTINUATION":
+        if market_phase == "TREND_CONTINUATION":
 
-        if candle == "IMPULSE":
-            momentum_bonus += 6
+            if candle == "IMPULSE":
+                momentum_bonus += 6
 
-        if ema20_slope > 0 and trend == "UPTREND":
-            momentum_bonus += 4
+            if ema20_slope > 0 and trend == "UPTREND":
+                momentum_bonus += 4
 
-        if ema20_slope < 0 and trend == "DOWNTREND":
-            momentum_bonus += 4
+            if ema20_slope < 0 and trend == "DOWNTREND":
+                momentum_bonus += 4
 
-    elif market_phase == "PULLBACK":
+        elif market_phase == "PULLBACK":
 
-        if candle == "REJECTION":
-            momentum_bonus += 3
+            if candle == "REJECTION":
+                momentum_bonus += 3
 
     # --------- DOMINANT SIDE ---------
     buys  = [r for r in fired if r[0] == "BUY"]
@@ -501,6 +501,7 @@ elif market_phase == "PULLBACK":
         confidence -= 8
 
     confidence = max(60, confidence)
+    confidence += momentum_bonus
 
 # ================= MODE-BASED CONFIDENCE CAPS =================
     if market_phase == "PULLBACK":
@@ -590,6 +591,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
