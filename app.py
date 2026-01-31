@@ -322,7 +322,39 @@ if i5:
     elif i5["ema50"].iloc[-1] < i5["ema200"].iloc[-1]:
         structure = "BEARISH"
         trend = "DOWNTREND"
-        
+ # ================= MARKET PHASE DETECTOR =================
+def detect_market_phase(i5, structure, trend):
+    if i5 is None:
+        return "NO_TRADE"
+
+    ema20 = i5["ema20"].iloc[-1]
+    ema50 = i5["ema50"].iloc[-1]
+    ema200 = i5["ema200"].iloc[-1]
+    price = i5["close"].iloc[-1]
+
+    ema20_prev = i5["ema20"].iloc[-3]
+    ema20_slope = ema20 - ema20_prev
+
+    # ---- NO TRADE (RANGE / FLAT) ----
+    if abs(ema20_slope) < 0.0001:
+        return "NO_TRADE"
+
+    # ---- TREND CONTINUATION ----
+    if trend == "UPTREND" and price > ema20 and ema20 > ema50:
+        return "TREND_CONTINUATION"
+
+    if trend == "DOWNTREND" and price < ema20 and ema20 < ema50:
+        return "TREND_CONTINUATION"
+
+    # ---- PULLBACK ----
+    if trend == "UPTREND" and price < ema20:
+        return "PULLBACK"
+
+    if trend == "DOWNTREND" and price > ema20:
+        return "PULLBACK"
+
+    return "NO_TRADE"
+       
 # ================= VISUAL GATES =================
 def gatekeeper(structure, trend, sr, candle):
     penalty = 0
@@ -348,18 +380,28 @@ def gatekeeper(structure, trend, sr, candle):
 
 # ================= 20-RULE ENGINE =================
 
-def evaluate_pairs(structure, sr, candle, trend):
+def evaluate_pairs(structure, sr, candle, trend, market_phase):
 
     # --------- SOFT GATES ---------
     penalty, gate_note = gatekeeper(structure, trend, sr, candle)
 
     fired = []
+   
+    # ================= PHASE FILTER =================
+    if market_phase == "NO_TRADE":
+        return "WAIT", "No-trade market phase", 0
 
     # ---- CATEGORY A (TREND) ----
-    if structure == "BULLISH" and candle == "IMPULSE":
-        fired.append(("BUY", 88, "Bullish trend acceleration"))
-    if structure == "BULLISH" and trend == "UPTREND" and candle == "REJECTION":
-        fired.append(("BUY", 85, "Pullback in uptrend"))
+    if market_phase == "TREND_CONTINUATION":
+        if structure == "BULLISH" and candle == "IMPULSE":
+            fired.append(("BUY", 88, "Bullish trend continuation"))
+        if structure == "BEARISH" and candle == "IMPULSE":
+        fired.append(("SELL", 88, "Bearish trend continuation"))
+    if market_phase == "PULLBACK":
+        if trend == "UPTREND" and candle in ["REJECTION", "NEUTRAL"]:
+            fired.append(("SELL", 70, "Counter-trend pullback"))
+        if trend == "DOWNTREND" and candle in ["REJECTION", "NEUTRAL"]:
+            fired.append(("BUY", 70, "Counter-trend pullback"))
     if structure == "BULLISH" and trend == "UPTREND" and candle == "IMPULSE":
         fired.append(("BUY", 90, "Breakout continuation"))
     if structure == "BEARISH" and candle == "IMPULSE":
@@ -448,7 +490,15 @@ def evaluate_pairs(structure, sr, candle, trend):
         confidence -= 8
 
     confidence = max(60, confidence)
-    
+
+# ================= MODE-BASED CONFIDENCE CAPS =================
+    if market_phase == "PULLBACK":
+        confidence = min(confidence, 72)
+
+    if market_phase == "TREND_CONTINUATION":
+        confidence = min(confidence, 95)
+
+# ================= FINAL DECISION =================
     if confidence < 65:
         return "WAIT", f"Weak setup ({gate_note})", confidence
 
@@ -459,7 +509,9 @@ signal = "WAIT"
 reason = "Not evaluated"
 confidence = 0
 
-signal, reason, confidence = evaluate_pairs(structure, sr, candle, trend)
+signal, reason, confidence = evaluate_pairs(
+    structure, sr, candle, trend, market_phase
+)
 
 # ================= SIGNAL MEMORY =================
 if "last_signal" not in st.session_state:
@@ -483,7 +535,6 @@ if market == "Currencies" and currencies:
 
         if confidence < 65:
             signal = "WAIT"
-
 if news_note:
     reason = f"{reason} • {news_note}"
 
@@ -528,4 +579,5 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
