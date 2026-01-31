@@ -311,20 +311,7 @@ def candle_type(df):
 
 candle = candle_type(data_5m.iloc[:-1])
 
-# ================= STRUCTURE & TREND =================
-structure = "RANGE"
-trend = "FLAT"
-
-if i5:
-    if i5["ema50"].iloc[-1] > i5["ema200"].iloc[-1]:
-        structure = "BULLISH"
-        trend = "UPTREND"
-    elif i5["ema50"].iloc[-1] < i5["ema200"].iloc[-1]:
-        structure = "BEARISH"
-        trend = "DOWNTREND"
-market_phase = detect_market_phase(i5, structure, trend)
-
- # ================= MARKET PHASE DETECTOR =================
+# ================= MARKET PHASE DETECTOR =================
 def detect_market_phase(i5, structure, trend):
     if i5 is None:
         return "NO_TRADE"
@@ -356,6 +343,19 @@ def detect_market_phase(i5, structure, trend):
         return "PULLBACK"
 
     return "NO_TRADE"
+    
+# ================= STRUCTURE & TREND =================
+structure = "RANGE"
+trend = "FLAT"
+
+if i5:
+    if i5["ema50"].iloc[-1] > i5["ema200"].iloc[-1]:
+        structure = "BULLISH"
+        trend = "UPTREND"
+    elif i5["ema50"].iloc[-1] < i5["ema200"].iloc[-1]:
+        structure = "BEARISH"
+        trend = "DOWNTREND"
+market_phase = detect_market_phase(i5, structure, trend)
        
 # ================= VISUAL GATES =================
 def gatekeeper(structure, trend, sr, candle):
@@ -593,6 +593,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
