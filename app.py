@@ -322,6 +322,8 @@ if i5:
     elif i5["ema50"].iloc[-1] < i5["ema200"].iloc[-1]:
         structure = "BEARISH"
         trend = "DOWNTREND"
+market_phase = detect_market_phase(i5, structure, trend)
+
  # ================= MARKET PHASE DETECTOR =================
 def detect_market_phase(i5, structure, trend):
     if i5 is None:
@@ -591,6 +593,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
