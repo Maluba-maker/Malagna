@@ -437,16 +437,31 @@ elif market_phase == "PULLBACK":
 
     # ================= PHASE FILTER =================
 
-    # ---- CATEGORY A (TREND) ----
+# ---- CATEGORY A (TREND) ----
 
-    # === TREND CONTINUATION MODE ===
-    if market_phase == "TREND_CONTINUATION":
+# === TREND CONTINUATION MODE ===
+if market_phase == "CONTINUATION":
 
-        if structure == "BULLISH" and candle == "IMPULSE":
-            fired.append(("BUY", 88, "Bullish trend continuation"))
+    if structure == "BULLISH" and candle == "IMPULSE":
+        fired.append(("BUY", 88, "Bullish trend continuation"))
 
-        if structure == "BEARISH" and candle == "IMPULSE":
-            fired.append(("SELL", 88, "Bearish trend continuation"))
+    if structure == "BEARISH" and candle == "IMPULSE":
+        fired.append(("SELL", 88, "Bearish trend continuation"))
+
+# === PULLBACK MODE (COUNTER-TREND) ===
+elif market_phase == "PULLBACK" and pullback_state:
+
+    if trend == "UPTREND":
+        if pullback_state == "SLOWING":
+            fired.append(("SELL", 68, "Pullback slowing"))
+        else:
+            fired.append(("SELL", 75, "Pullback turning"))
+
+    if trend == "DOWNTREND":
+        if pullback_state == "SLOWING":
+            fired.append(("BUY", 68, "Pullback slowing"))
+        else:
+            fired.append(("BUY", 75, "Pullback turning"))
 
     # === PULLBACK MODE (COUNTER-TREND) ===
     elif market_phase == "PULLBACK":
@@ -637,6 +652,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
