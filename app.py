@@ -397,7 +397,6 @@ market_phase = detect_market_phase(i5, trend)
 pullback_state = None
 if market_phase == "PULLBACK":
     pullback_state = detect_pullback_state(i5, trend)
-)
 
 # ================= VISUAL GATES =================
 def gatekeeper(structure, trend, sr, candle):
@@ -622,6 +621,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
