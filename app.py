@@ -389,7 +389,16 @@ if i5:
     elif i5["close"].iloc[-1] < i5["ema50"].iloc[-1] < i5["ema200"].iloc[-1]:
         structure = "BEARISH"
         trend = "DOWNTREND"
-       
+
+# ================= MARKET PHASE =================
+market_phase = detect_market_phase(i5, trend)
+
+# ================= PULLBACK STATE =================
+pullback_state = None
+if market_phase == "PULLBACK":
+    pullback_state = detect_pullback_state(i5, trend)
+)
+
 # ================= VISUAL GATES =================
 def gatekeeper(structure, trend, sr, candle):
     penalty = 0
@@ -613,6 +622,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
