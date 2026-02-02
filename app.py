@@ -415,7 +415,17 @@ def gatekeeper(structure, trend, sr, candle):
 
 # ================= 20-RULE ENGINE ================= 
 
-elif market_phase == "PULLBACK":
+# ---- CATEGORY A (TREND) ----
+
+if market_phase == "CONTINUATION":
+
+    if structure == "BULLISH" and candle == "IMPULSE":
+        fired.append(("BUY", 88, "Bullish trend continuation"))
+
+    if structure == "BEARISH" and candle == "IMPULSE":
+        fired.append(("SELL", 88, "Bearish trend continuation"))
+
+elif market_phase == "PULLBACK" and pullback_state:
 
     if trend == "UPTREND":
         if pullback_state == "SLOWING":
@@ -423,114 +433,70 @@ elif market_phase == "PULLBACK":
         else:
             fired.append(("SELL", 75, "Pullback turning"))
 
-    if trend == "DOWNTREND":
+    elif trend == "DOWNTREND":
         if pullback_state == "SLOWING":
             fired.append(("BUY", 68, "Pullback slowing"))
         else:
             fired.append(("BUY", 75, "Pullback turning"))
 
-    # --------- SOFT GATES ---------
-    penalty, gate_note = gatekeeper(structure, trend, sr, candle)
+# ---- CATEGORY B (SR) ----
+if market_phase == "CONTINUATION":
 
-    fired = []
-    momentum_bonus = 0
+    if trend == "UPTREND" and sr["support"] and candle == "REJECTION":
+        fired.append(("BUY", 86, "Support hold in uptrend"))
 
-    # ================= PHASE FILTER =================
+    if trend == "DOWNTREND" and sr["resistance"] and candle == "REJECTION":
+        fired.append(("SELL", 86, "Resistance hold in downtrend"))
 
-    # ---- CATEGORY A (TREND) ----
+elif market_phase == "PULLBACK":
 
-    if market_phase == "CONTINUATION":
+    if trend == "UPTREND" and sr["resistance"] and candle in ["REJECTION", "NEUTRAL"]:
+        fired.append(("SELL", 72, "Pullback rejection at resistance"))
 
-        if structure == "BULLISH" and candle == "IMPULSE":
-            fired.append(("BUY", 88, "Bullish trend continuation"))
+    if trend == "DOWNTREND" and sr["support"] and candle in ["REJECTION", "NEUTRAL"]:
+        fired.append(("BUY", 72, "Pullback rejection at support"))
 
-        if structure == "BEARISH" and candle == "IMPULSE":
-            fired.append(("SELL", 88, "Bearish trend continuation"))
+# ---- CATEGORY C (MEAN REVERSION) ----
+if market_phase == "NO_TRADE":
 
-    # === PULLBACK MODE (COUNTER-TREND) ===
-    elif market_phase == "PULLBACK" and pullback_state:
+    if sr["support"] and candle in ["NEUTRAL", "REJECTION"]:
+        fired.append(("BUY", 75, "Range mean reversion (support)"))
 
-        if trend == "UPTREND":
-            if pullback_state == "SLOWING":
-                fired.append(("SELL", 68, "Pullback slowing"))
-            else:
-                fired.append(("SELL", 75, "Pullback turning"))
+    if sr["resistance"] and candle in ["NEUTRAL", "REJECTION"]:
+        fired.append(("SELL", 75, "Range mean reversion (resistance)"))
 
-    if trend == "DOWNTREND":
-        if pullback_state == "SLOWING":
-            fired.append(("BUY", 68, "Pullback slowing"))
-        else:
-            fired.append(("BUY", 75, "Pullback turning"))
+# ---- CATEGORY D (MOMENTUM) ----
+momentum_bonus = 0
 
-    # === PULLBACK MODE (COUNTER-TREND) ===
-    elif market_phase == "PULLBACK":
+if market_phase == "CONTINUATION":
 
-        if trend == "UPTREND" and candle in ["REJECTION", "NEUTRAL"]:
-            fired.append(("SELL", 70, "Counter-trend pullback"))
+    if candle == "IMPULSE":
+        momentum_bonus += 6
 
-        if trend == "DOWNTREND" and candle in ["REJECTION", "NEUTRAL"]:
-            fired.append(("BUY", 70, "Counter-trend pullback"))
+    if ema20_slope > 0 and trend == "UPTREND":
+        momentum_bonus += 4
 
-    # ---- CATEGORY B (SR) ----
-    # === TREND CONTINUATION: SR CONFIRMATION ONLY ===
-    if market_phase == "TREND_CONTINUATION":
+    if ema20_slope < 0 and trend == "DOWNTREND":
+        momentum_bonus += 4
 
-        if trend == "UPTREND" and sr["support"] and candle == "REJECTION":
-            fired.append(("BUY", 86, "Support hold in uptrend"))
+elif market_phase == "PULLBACK":
 
-        if trend == "DOWNTREND" and sr["resistance"] and candle == "REJECTION":
-            fired.append(("SELL", 86, "Resistance hold in downtrend"))
+    if candle == "REJECTION":
+        momentum_bonus += 3
 
-    # === PULLBACK MODE: COUNTER-TREND FROM EXTREMES ===
-    elif market_phase == "PULLBACK":
+# --------- DOMINANT SIDE ---------
+buys  = [r for r in fired if r[0] == "BUY"]
+sells = [r for r in fired if r[0] == "SELL"]
 
-        if trend == "UPTREND" and sr["resistance"] and candle in ["REJECTION", "NEUTRAL"]:
-            fired.append(("SELL", 72, "Pullback rejection at resistance"))
+buy_score  = sum(r[1] for r in buys)
+sell_score = sum(r[1] for r in sells)
 
-        if trend == "DOWNTREND" and sr["support"] and candle in ["REJECTION", "NEUTRAL"]:
-            fired.append(("BUY", 72, "Pullback rejection at support"))
+if buy_score == sell_score:
+    return "WAIT", "No dominant side", 0
 
-    # ---- CATEGORY C (MEAN REVERSION) ----
-    if market_phase == "NO_TRADE":
-
-        if sr["support"] and candle in ["NEUTRAL", "REJECTION"]:
-            fired.append(("BUY", 75, "Range mean reversion (support)"))
-
-        if sr["resistance"] and candle in ["NEUTRAL", "REJECTION"]:
-            fired.append(("SELL", 75, "Range mean reversion (resistance)"))
-
-    # ---- CATEGORY D (MOMENTUM) ----
-    momentum_bonus = 0
-
-    if market_phase == "TREND_CONTINUATION":
-
-        if candle == "IMPULSE":
-            momentum_bonus += 6
-
-        if ema20_slope > 0 and trend == "UPTREND":
-            momentum_bonus += 4
-
-        if ema20_slope < 0 and trend == "DOWNTREND":
-            momentum_bonus += 4
-
-    elif market_phase == "PULLBACK":
-
-        if candle == "REJECTION":
-            momentum_bonus += 3
-
-    # --------- DOMINANT SIDE ---------
-    buys  = [r for r in fired if r[0] == "BUY"]
-    sells = [r for r in fired if r[0] == "SELL"]
-
-    buy_score  = sum(r[1] for r in buys)
-    sell_score = sum(r[1] for r in sells)
-
-    if buy_score == sell_score:
-        return "WAIT", "No dominant side", 0
-
-    dominant_rules = buys if buy_score > sell_score else sells
-    dominant_rules.sort(key=lambda x: x[1], reverse=True)
-    top = dominant_rules[0]
+dominant_rules = buys if buy_score > sell_score else sells
+dominant_rules.sort(key=lambda x: x[1], reverse=True)
+top = dominant_rules[0]
 
     # --------- BASE CONFIDENCE (ALWAYS INITIALIZED) ---------
     confidence = top[1] + (len(dominant_rules) - 1) * 3
@@ -651,6 +617,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
