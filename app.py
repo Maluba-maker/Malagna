@@ -498,30 +498,30 @@ dominant_rules = buys if buy_score > sell_score else sells
 dominant_rules.sort(key=lambda x: x[1], reverse=True)
 top = dominant_rules[0]
 
-    # --------- BASE CONFIDENCE (ALWAYS INITIALIZED) ---------
-    confidence = top[1] + (len(dominant_rules) - 1) * 3
+# --------- BASE CONFIDENCE ---------
+confidence = top[1] + (len(dominant_rules) - 1) * 3
 
-    # --------- TIMING FILTER (PULLBACK PROTECTION) ---------
-    if top[0] == "SELL":
-        if i5["close"].iloc[-1] > i5["ema20"].iloc[-1]:
-            confidence -= 15
-            gate_note += " • Pullback up (wait for rollover)"
+# --------- TIMING FILTER (PULLBACK PROTECTION) ---------
+if top[0] == "SELL":
+    if i5["close"].iloc[-1] > i5["ema20"].iloc[-1]:
+        confidence -= 15
+        gate_note += " • Pullback up (wait for rollover)"
 
-        if ema20_slope > 0:
-            confidence -= 10
-            gate_note += " • Short-term momentum up"
+    if ema20_slope > 0:
+        confidence -= 10
+        gate_note += " • Short-term momentum up"
 
     if top[0] == "BUY":
         if i5["close"].iloc[-1] < i5["ema20"].iloc[-1]:
             confidence -= 15
             gate_note += " • Pullback down (wait for bounce)"
 
-        if ema20_slope < 0:
-            confidence -= 10
-            gate_note += " • Short-term momentum down"
+    if ema20_slope < 0:
+        confidence -= 10
+        gate_note += " • Short-term momentum down"
 
-    # --------- FINAL CONFIDENCE (APPLY PENALTY) ---------
-    confidence = min(99, confidence - penalty)
+# --------- FINAL CONFIDENCE (APPLY PENALTY) ---------
+confidence = min(99, confidence - penalty)
     if not market_active:
         confidence -= 8
     if market_phase == "PULLBACK":
@@ -617,6 +617,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
