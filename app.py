@@ -312,50 +312,83 @@ def candle_type(df):
 candle = candle_type(data_5m.iloc[:-1])
 
 # ================= MARKET PHASE DETECTOR =================
-def detect_market_phase(i5, structure, trend):
+def detect_market_phase(i5, trend):
     if i5 is None:
-        return "NO_TRADE"
+        return "RANGE"
 
-    ema20 = i5["ema20"].iloc[-1]
-    ema50 = i5["ema50"].iloc[-1]
-    ema200 = i5["ema200"].iloc[-1]
     price = i5["close"].iloc[-1]
+    ema20 = i5["ema20"].iloc[-1]
 
-    ema20_prev = i5["ema20"].iloc[-3]
-    ema20_slope = ema20 - ema20_prev
+    # ---- CONTINUATION ----
+    if trend == "UPTREND" and price > ema20:
+        return "CONTINUATION"
 
-    # ---- NO TRADE (RANGE / FLAT) ----
-    if abs(ema20_slope) < 0.0001:
-        return "NO_TRADE"
-
-    # ---- TREND CONTINUATION ----
-    if trend == "UPTREND" and price > ema20 and ema20 > ema50:
-        return "TREND_CONTINUATION"
-
-    if trend == "DOWNTREND" and price < ema20 and ema20 < ema50:
-        return "TREND_CONTINUATION"
+    if trend == "DOWNTREND" and price < ema20:
+        return "CONTINUATION"
 
     # ---- PULLBACK ----
-    if trend == "UPTREND" and price < ema20:
+    if trend == "UPTREND" and price <= ema20:
         return "PULLBACK"
 
-    if trend == "DOWNTREND" and price > ema20:
+    if trend == "DOWNTREND" and price >= ema20:
         return "PULLBACK"
 
-    return "NO_TRADE"
+    return "RANGE"
+def detect_pullback_state(i5, trend):
+    ema20 = i5["ema20"]
+    slope = ema20.iloc[-1] - ema20.iloc[-3]
+
+    # Slowing = compression
+    if abs(slope) < abs(ema20.iloc[-3] - ema20.iloc[-5]):
+        return "SLOWING"
+
+    # Turning = momentum flip
+    if trend == "UPTREND" and slope < 0:
+        return "TURNING"
+
+    if trend == "DOWNTREND" and slope > 0:
+        return "TURNING"
+
+    return "SLOWING"
+
+# ================= PULLBACK STATE DETECTOR =================
+def detect_pullback_state(i5, trend):
+    if i5 is None:
+        return None
+
+    ema20 = i5["ema20"]
+
+    if len(ema20.dropna()) < 5:
+        return None
+
+    slope_now = ema20.iloc[-1] - ema20.iloc[-3]
+    slope_prev = ema20.iloc[-3] - ema20.iloc[-5]
+
+    # ---- SLOWING (compression) ----
+    if abs(slope_now) < abs(slope_prev):
+        return "SLOWING"
+
+    # ---- TURNING (momentum flip) ----
+    if trend == "UPTREND" and slope_now < 0:
+        return "TURNING"
+
+    if trend == "DOWNTREND" and slope_now > 0:
+        return "TURNING"
+
+    return "SLOWING"
     
 # ================= STRUCTURE & TREND =================
 structure = "RANGE"
 trend = "FLAT"
 
 if i5:
-    if i5["ema50"].iloc[-1] > i5["ema200"].iloc[-1]:
+    if i5["close"].iloc[-1] > i5["ema50"].iloc[-1] > i5["ema200"].iloc[-1]:
         structure = "BULLISH"
         trend = "UPTREND"
-    elif i5["ema50"].iloc[-1] < i5["ema200"].iloc[-1]:
+
+    elif i5["close"].iloc[-1] < i5["ema50"].iloc[-1] < i5["ema200"].iloc[-1]:
         structure = "BEARISH"
         trend = "DOWNTREND"
-market_phase = detect_market_phase(i5, structure, trend)
        
 # ================= VISUAL GATES =================
 def gatekeeper(structure, trend, sr, candle):
@@ -382,7 +415,19 @@ def gatekeeper(structure, trend, sr, candle):
 
 # ================= 20-RULE ENGINE ================= 
 
-def evaluate_pairs(structure, sr, candle, trend, market_phase):
+elif market_phase == "PULLBACK":
+
+    if trend == "UPTREND":
+        if pullback_state == "SLOWING":
+            fired.append(("SELL", 68, "Pullback slowing"))
+        else:
+            fired.append(("SELL", 75, "Pullback turning"))
+
+    if trend == "DOWNTREND":
+        if pullback_state == "SLOWING":
+            fired.append(("BUY", 68, "Pullback slowing"))
+        else:
+            fired.append(("BUY", 75, "Pullback turning"))
 
     # --------- SOFT GATES ---------
     penalty, gate_note = gatekeeper(structure, trend, sr, candle)
@@ -391,8 +436,6 @@ def evaluate_pairs(structure, sr, candle, trend, market_phase):
     momentum_bonus = 0
 
     # ================= PHASE FILTER =================
-    if market_phase == "NO_TRADE":
-        return "WAIT", "No-trade market phase", 0
 
     # ---- CATEGORY A (TREND) ----
 
@@ -501,9 +544,10 @@ def evaluate_pairs(structure, sr, candle, trend, market_phase):
     confidence = min(99, confidence - penalty)
     if not market_active:
         confidence -= 8
-
-    confidence = max(60, confidence)
-    confidence += momentum_bonus
+    if market_phase == "PULLBACK":
+        confidence = min(confidence, 78)
+    if market_phase == "CONTINUATION":
+        confidence = min(confidence, 95)
 
 # ================= MODE-BASED CONFIDENCE CAPS =================
     if market_phase == "PULLBACK":
@@ -593,6 +637,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
