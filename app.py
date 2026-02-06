@@ -283,11 +283,15 @@ def detect_phase_from_price(df, structure):
     """
     Continuation vs pullback using price direction.
     """
-    if df is None or len(df) < 10:
+    if df is None or df.empty or len(df) < 6:
         return "NO_TRADE"
 
-    last = df["Close"].iloc[-1]
-    prev = df["Close"].iloc[-5]
+    closes = df["Close"]
+    if isinstance(closes, pd.DataFrame):
+        closes = closes.iloc[:, 0]
+
+    last = float(closes.iloc[-1])
+    prev = float(closes.iloc[-5])
 
     if structure == "BULLISH":
         return "CONTINUATION" if last >= prev else "PULLBACK"
@@ -448,6 +452,7 @@ st.markdown(f"""
     Structure (M5): {structure} • Phase: {phase} • Candle: {candle}
   </div>
 """, unsafe_allow_html=True)
+
 
 
 
