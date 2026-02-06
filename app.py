@@ -253,17 +253,24 @@ i5 = indicators(data_5m)
 def detect_structure_from_price(df):
     """
     Uses swing logic on CLOSE prices.
+    FIXED: ensures scalar values (no pandas ambiguity)
     """
     if df is None or len(df) < 20:
         return "RANGE"
 
-    closes = df["Close"].astype(float)
+    closes = df["Close"]
 
-    recent_low  = closes.iloc[-10:].min()
-    prior_low   = closes.iloc[-20:-10].min()
+    # 🔒 FORCE Series (not DataFrame)
+    if isinstance(closes, pd.DataFrame):
+        closes = closes.iloc[:, 0]
 
-    recent_high = closes.iloc[-10:].max()
-    prior_high  = closes.iloc[-20:-10].max()
+    closes = closes.astype(float)
+
+    recent_low  = float(closes.iloc[-10:].min())
+    prior_low   = float(closes.iloc[-20:-10].min())
+
+    recent_high = float(closes.iloc[-10:].max())
+    prior_high  = float(closes.iloc[-20:-10].max())
 
     if recent_low > prior_low:
         return "BULLISH"
@@ -272,7 +279,6 @@ def detect_structure_from_price(df):
         return "BEARISH"
 
     return "RANGE"
-
 
 def detect_phase_from_price(df, structure):
     """
@@ -444,6 +450,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
