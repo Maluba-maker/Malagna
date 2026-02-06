@@ -220,7 +220,6 @@ def forex_factory_red_news(currencies, window_minutes=30):
 
     return False
 
-
 def extract_currencies(asset):
     if "/" in asset:
         return asset.split("/")
@@ -446,10 +445,10 @@ st.markdown(f"""
 
   <div class="small">{reason}</div>
   <div class="small">
-    Bias (M5): {structure} • Trend: {trend} • Candle: {candle}
+    Structure (M5): {structure} • Phase: {phase} • Candle: {candle}
   </div>
-</div>
 """, unsafe_allow_html=True)
+
 
 
 
