@@ -248,6 +248,66 @@ def indicators(df):
 
 i5 = indicators(data_5m)
 
+# ================= PRICE STRUCTURE (LIVE DATA) =================
+
+def detect_structure_from_price(df):
+    """
+    Uses swing logic on CLOSE prices.
+    """
+    if df is None or len(df) < 20:
+        return "RANGE"
+
+    closes = df["Close"].astype(float)
+
+    recent_low  = closes.iloc[-10:].min()
+    prior_low   = closes.iloc[-20:-10].min()
+
+    recent_high = closes.iloc[-10:].max()
+    prior_high  = closes.iloc[-20:-10].max()
+
+    if recent_low > prior_low:
+        return "BULLISH"
+
+    if recent_high < prior_high:
+        return "BEARISH"
+
+    return "RANGE"
+
+
+def detect_phase_from_price(df, structure):
+    """
+    Continuation vs pullback using price direction.
+    """
+    if df is None or len(df) < 10:
+        return "NO_TRADE"
+
+    last = df["Close"].iloc[-1]
+    prev = df["Close"].iloc[-5]
+
+    if structure == "BULLISH":
+        return "CONTINUATION" if last >= prev else "PULLBACK"
+
+    if structure == "BEARISH":
+        return "CONTINUATION" if last <= prev else "PULLBACK"
+
+    return "NO_TRADE"
+
+def classify_market_state(structure, phase):
+
+    if structure == "BULLISH" and phase == "CONTINUATION":
+        return "BUY", "Uptrend continuation", 80
+
+    if structure == "BEARISH" and phase == "CONTINUATION":
+        return "SELL", "Downtrend continuation", 80
+
+    if structure == "BULLISH" and phase == "PULLBACK":
+        return "SELL", "Pullback in uptrend", 70
+
+    if structure == "BEARISH" and phase == "PULLBACK":
+        return "BUY", "Pullback in downtrend", 70
+
+    return "WAIT", "No clear structure", 0
+
 # ================= SHORT-TERM MOMENTUM (EMA20 SLOPE) =================
 ema20_slope = 0
 
@@ -311,249 +371,12 @@ def candle_type(df):
 
 candle = candle_type(data_5m.iloc[:-1])
 
-# ================= MARKET PHASE DETECTOR =================
-def detect_market_phase(i5, trend):
-    if i5 is None:
-        return "RANGE"
-
-    price = i5["close"].iloc[-1]
-    ema20 = i5["ema20"].iloc[-1]
-
-    # ---- CONTINUATION ----
-    if trend == "UPTREND" and price > ema20:
-        return "CONTINUATION"
-
-    if trend == "DOWNTREND" and price < ema20:
-        return "CONTINUATION"
-
-    # ---- PULLBACK ----
-    if trend == "UPTREND" and price <= ema20:
-        return "PULLBACK"
-
-    if trend == "DOWNTREND" and price >= ema20:
-        return "PULLBACK"
-
-    return "RANGE"
-def detect_pullback_state(i5, trend):
-    ema20 = i5["ema20"]
-    slope = ema20.iloc[-1] - ema20.iloc[-3]
-
-    # Slowing = compression
-    if abs(slope) < abs(ema20.iloc[-3] - ema20.iloc[-5]):
-        return "SLOWING"
-
-    # Turning = momentum flip
-    if trend == "UPTREND" and slope < 0:
-        return "TURNING"
-
-    if trend == "DOWNTREND" and slope > 0:
-        return "TURNING"
-
-    return "SLOWING"
-
-# ================= PULLBACK STATE DETECTOR =================
-def detect_pullback_state(i5, trend):
-    if i5 is None:
-        return None
-
-    ema20 = i5["ema20"]
-
-    if len(ema20.dropna()) < 5:
-        return None
-
-    slope_now = ema20.iloc[-1] - ema20.iloc[-3]
-    slope_prev = ema20.iloc[-3] - ema20.iloc[-5]
-
-    # ---- SLOWING (compression) ----
-    if abs(slope_now) < abs(slope_prev):
-        return "SLOWING"
-
-    # ---- TURNING (momentum flip) ----
-    if trend == "UPTREND" and slope_now < 0:
-        return "TURNING"
-
-    if trend == "DOWNTREND" and slope_now > 0:
-        return "TURNING"
-
-    return "SLOWING"
-    
-# ================= STRUCTURE & TREND =================
-structure = "RANGE"
-trend = "FLAT"
-
-if i5:
-    if i5["close"].iloc[-1] > i5["ema50"].iloc[-1] > i5["ema200"].iloc[-1]:
-        structure = "BULLISH"
-        trend = "UPTREND"
-
-    elif i5["close"].iloc[-1] < i5["ema50"].iloc[-1] < i5["ema200"].iloc[-1]:
-        structure = "BEARISH"
-        trend = "DOWNTREND"
-
-# ================= MARKET PHASE =================
-market_phase = detect_market_phase(i5, trend)
-
-# ================= PULLBACK STATE =================
-pullback_state = None
-if market_phase == "PULLBACK":
-    pullback_state = detect_pullback_state(i5, trend)
-
-# ================= VISUAL GATES =================
-def gatekeeper(structure, trend, sr, candle):
-    penalty = 0
-    notes = []
-
-    if structure == "RANGE" and trend == "FLAT":
-        penalty += 12
-        notes.append("Low structure clarity")
-
-    if candle == "NEUTRAL":
-        penalty += 10
-        notes.append("Weak candle")
-
-    if structure == "BULLISH" and sr["resistance"]:
-        penalty += 15
-        notes.append("Near resistance")
-
-    if structure == "BEARISH" and sr["support"]:
-        penalty += 15
-        notes.append("Near support")
-
-    return penalty, ", ".join(notes) if notes else "Clean setup"
-
-# ================= 20-RULE ENGINE ================= 
-
-def evaluate_pairs(structure, sr, candle, trend, market_phase, pullback_state):
-
-    penalty, gate_note = gatekeeper(structure, trend, sr, candle)
-
-    fired = []
-    momentum_bonus = 0
-
-    # ---- CATEGORY A (TREND & PULLBACK) ----
-    if market_phase == "CONTINUATION":
-
-        if structure == "BULLISH" and candle == "IMPULSE":
-            fired.append(("BUY", 88, "Bullish trend continuation"))
-
-        if structure == "BEARISH" and candle == "IMPULSE":
-            fired.append(("SELL", 88, "Bearish trend continuation"))
-
-    elif market_phase == "PULLBACK" and pullback_state:
-
-        if trend == "UPTREND":
-            if pullback_state == "SLOWING":
-                fired.append(("SELL", 68, "Pullback slowing"))
-            else:
-                fired.append(("SELL", 75, "Pullback turning"))
-
-        elif trend == "DOWNTREND":
-            if pullback_state == "SLOWING":
-                fired.append(("BUY", 68, "Pullback slowing"))
-            else:
-                fired.append(("BUY", 75, "Pullback turning"))
-
-    # ---- CATEGORY B (SR) ----
-    if market_phase == "CONTINUATION":
-
-        if trend == "UPTREND" and sr["support"] and candle == "REJECTION":
-            fired.append(("BUY", 86, "Support hold in uptrend"))
-
-        if trend == "DOWNTREND" and sr["resistance"] and candle == "REJECTION":
-            fired.append(("SELL", 86, "Resistance hold in downtrend"))
-
-    elif market_phase == "PULLBACK":
-
-        if trend == "UPTREND" and sr["resistance"] and candle in ["REJECTION", "NEUTRAL"]:
-            fired.append(("SELL", 72, "Pullback rejection at resistance"))
-
-        if trend == "DOWNTREND" and sr["support"] and candle in ["REJECTION", "NEUTRAL"]:
-            fired.append(("BUY", 72, "Pullback rejection at support"))
-
-    # ---- CATEGORY C (MEAN REVERSION) ----
-    if market_phase == "NO_TRADE":
-
-        if sr["support"] and candle in ["NEUTRAL", "REJECTION"]:
-            fired.append(("BUY", 75, "Range mean reversion (support)"))
-
-        if sr["resistance"] and candle in ["NEUTRAL", "REJECTION"]:
-            fired.append(("SELL", 75, "Range mean reversion (resistance)"))
-
-    # ---- CATEGORY D (MOMENTUM) ----
-    if market_phase == "CONTINUATION":
-
-        if candle == "IMPULSE":
-            momentum_bonus += 6
-
-        if ema20_slope > 0 and trend == "UPTREND":
-            momentum_bonus += 4
-
-        if ema20_slope < 0 and trend == "DOWNTREND":
-            momentum_bonus += 4
-
-    elif market_phase == "PULLBACK":
-
-        if candle == "REJECTION":
-            momentum_bonus += 3
-
-    # --------- DOMINANT SIDE ---------
-    buys = [r for r in fired if r[0] == "BUY"]
-    sells = [r for r in fired if r[0] == "SELL"]
-
-    buy_score = sum(r[1] for r in buys)
-    sell_score = sum(r[1] for r in sells)
-
-    if buy_score == sell_score:
-        return "WAIT", "No dominant side", 0
-
-    dominant_rules = buys if buy_score > sell_score else sells
-    dominant_rules.sort(key=lambda x: x[1], reverse=True)
-    top = dominant_rules[0]
-
-    # --------- BASE CONFIDENCE ---------
-    confidence = top[1] + (len(dominant_rules) - 1) * 3
-
-    # --------- TIMING FILTER (PULLBACK PROTECTION) ---------
-    if top[0] == "SELL":
-        if i5["close"].iloc[-1] > i5["ema20"].iloc[-1]:
-            confidence -= 15
-            gate_note += " • Pullback up (wait for rollover)"
-
-        if ema20_slope > 0:
-            confidence -= 10
-            gate_note += " • Short-term momentum up"
-
-    if top[0] == "BUY":
-        if i5["close"].iloc[-1] < i5["ema20"].iloc[-1]:
-            confidence -= 15
-            gate_note += " • Pullback down (wait for bounce)"
-
-        if ema20_slope < 0:
-            confidence -= 10
-            gate_note += " • Short-term momentum down"
-
-    # --------- FINAL CONFIDENCE ---------
-    confidence = min(99, confidence - penalty)
-
-    if not market_active:
-        confidence -= 8
-
-    if market_phase == "PULLBACK":
-        confidence = min(confidence, 78)
-
-    if market_phase == "CONTINUATION":
-        confidence = min(confidence, 95)
-
-    if confidence < 65:
-        return "WAIT", f"Weak setup ({gate_note})", confidence
-
-    return top[0], f"{top[2]} • {gate_note}", confidence
-
-
 # ================= SIGNAL EVALUATION =================
-signal, reason, confidence = evaluate_pairs(
-    structure, sr, candle, trend, market_phase, pullback_state
-)
+
+structure = detect_structure_from_price(data_5m)
+phase = detect_phase_from_price(data_5m, structure)
+
+signal, reason, confidence = classify_market_state(structure, phase)
 
 # ================= SIGNAL MEMORY =================
 if "last_signal" not in st.session_state:
@@ -621,6 +444,7 @@ st.markdown(f"""
   </div>
 </div>
 """, unsafe_allow_html=True)
+
 
 
 
