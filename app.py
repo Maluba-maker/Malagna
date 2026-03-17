@@ -735,23 +735,23 @@ def scan_all_markets():
 
         # ===== ENTRY LOGIC =====
         
-    if cycle == "TREND":
+        if cycle == "TREND":
         
-        elif m5_direction == "BULLISH" and adx > 18:
-            signal = "BUY"
-            confidence = 75
-            reason = "Early trend continuation"
-        
-        elif m5_direction == "BEARISH" and adx > 18:
-            signal = "SELL"
-            confidence = 75
-            reason = "Early trend continuation"
+            elif m5_direction == "BULLISH" and adx > 18:
+                signal = "BUY"
+                confidence = 75
+                reason = "Early trend continuation"
+            
+            elif m5_direction == "BEARISH" and adx > 18:
+                signal = "SELL"
+                confidence = 75
+                reason = "Early trend continuation"
 
-        # Secondary momentum entry (catch missed moves)
-        if not pullback_ready and movement in ["CLEAN", "MODERATE"] and adx > 22:
-            signal = "BUY" if m5_direction == "BULLISH" else "SELL"
-            confidence = 72
-            reason = "Momentum continuation"
+            # Secondary momentum entry (catch missed moves)
+            if not pullback_ready and movement in ["CLEAN", "MODERATE"] and adx > 22:
+                signal = "BUY" if m5_direction == "BULLISH" else "SELL"
+                confidence = 72
+                reason = "Momentum continuation"
             
         elif cycle == "CONSOLIDATION":
         
