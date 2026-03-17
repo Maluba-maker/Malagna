@@ -734,21 +734,25 @@ def scan_all_markets():
         reason = ""
 
         # ===== ENTRY LOGIC =====
-        
         if cycle == "TREND":
+
+            if pullback_ready:
+                signal = "BUY" if m5_direction == "BULLISH" else "SELL"
+                confidence = 90
+                reason = "Trend pullback entry"
         
             elif m5_direction == "BULLISH" and adx > 18:
                 signal = "BUY"
                 confidence = 75
                 reason = "Early trend continuation"
-            
+        
             elif m5_direction == "BEARISH" and adx > 18:
                 signal = "SELL"
                 confidence = 75
                 reason = "Early trend continuation"
-
-            # Secondary momentum entry (catch missed moves)
-            if not pullback_ready and movement in ["CLEAN", "MODERATE"] and adx > 22:
+        
+            # 🔥 Secondary momentum entry (ONLY if nothing triggered above)
+            elif not pullback_ready and movement in ["CLEAN", "MODERATE"] and adx > 22:
                 signal = "BUY" if m5_direction == "BULLISH" else "SELL"
                 confidence = 72
                 reason = "Momentum continuation"
