@@ -735,7 +735,7 @@ def scan_all_markets():
 
         # ===== ENTRY LOGIC =====
         
-        if cycle == "TREND":
+    if cycle == "TREND":
         
         elif m5_direction == "BULLISH" and adx > 18:
             signal = "BUY"
