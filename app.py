@@ -724,7 +724,7 @@ def scan_all_markets():
         breakout = detect_breakout(df)
         movement = movement_reality(i)
 
-        if movement not in ["CLEAN", "MODERATE"]:
+        if movement == "CHAOTIC" and cycle != "EXPANSION":
             continue
         
         pullback_ready = detect_trend_pullback(i, m5_direction)
@@ -737,21 +737,22 @@ def scan_all_markets():
         
         if cycle == "TREND":
         
-            if pullback_ready:
-                signal = "BUY" if m5_direction == "BULLISH" else "SELL"
-                confidence = 90
-                reason = "Trend pullback entry"
+        elif m5_direction == "BULLISH" and adx > 18:
+            signal = "BUY"
+            confidence = 75
+            reason = "Early trend continuation"
         
-            elif m5_direction == "BULLISH":
-                signal = "BUY"
-                confidence = 70
-                reason = "Trend continuation"
-        
-            elif m5_direction == "BEARISH":
-                signal = "SELL"
-                confidence = 70
-                reason = "Trend continuation"
-    
+        elif m5_direction == "BEARISH" and adx > 18:
+            signal = "SELL"
+            confidence = 75
+            reason = "Early trend continuation"
+
+        # Secondary momentum entry (catch missed moves)
+        if not pullback_ready and movement in ["CLEAN", "MODERATE"] and adx > 22:
+            signal = "BUY" if m5_direction == "BULLISH" else "SELL"
+            confidence = 72
+            reason = "Momentum continuation"
+            
         elif cycle == "CONSOLIDATION":
         
             highs = df["High"]
@@ -847,8 +848,6 @@ def scan_all_markets():
                 "entry": entry_time.strftime("%H:%M"),
                 "expiry": expiry_time.strftime("%H:%M")
             }
-
-            break  # First valid trade only
 
     return best_trade
 
