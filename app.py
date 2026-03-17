@@ -86,7 +86,19 @@ COMMODITIES = {
 
 @st.cache_data(ttl=60)
 def fetch(symbol, interval, period):
-    return yf.download(symbol, interval=interval, period=period, progress=False)
+
+    try:
+        df = yf.download(symbol, interval=interval, period=period, progress=False)
+
+        if df is None or df.empty:
+            return None
+
+        df = df.dropna()
+
+        return df
+
+    except:
+        return None
 
 def indicators(df):
     if df is None or df.empty or "Close" not in df.columns:
@@ -309,44 +321,29 @@ def range_quality(indicators):
 
     return "POOR"
 
-def detect_pullback_quality(df, indicators, structure):
-
-    if indicators is None:
-        return "NONE"
+def detect_trend_pullback(indicators, direction):
 
     close = indicators["close"]
     ema20 = indicators["ema20"]
-    ema50 = indicators["ema50"]
-    adx = indicators["adx"]
+    rsi = indicators["rsi"]
 
     price = close.iloc[-1]
+    ema = ema20.iloc[-1]
+    rsi_now = rsi.iloc[-1]
 
-    # Near value zone
-    near_value = (
-        abs(price - ema20.iloc[-1]) / price < 0.004 or
-        abs(price - ema50.iloc[-1]) / price < 0.004
-    )
+    # Distance to EMA
+    near_ema = abs(price - ema) / price < 0.005  # 0.5% tolerance
 
-    # Momentum cooling
-    adx_now = adx.iloc[-1]
-    adx_prev = adx.iloc[-4]
+    if direction == "BULLISH":
+        # Pullback = price near EMA and RSI cooled
+        if price <= ema and rsi_now < 55:
+            return True
 
-    momentum_cooling = adx_now <= adx_prev
+    if direction == "BEARISH":
+        if price >= ema and rsi_now > 45:
+            return True
 
-    # Pullback should NOT be explosive
-    recent = close.iloc[-8:]
-    move = abs(recent.iloc[-1] - recent.iloc[0])
-    noise = recent.diff().abs().sum()
-
-    smooth = (move / noise) < 0.55 if noise != 0 else False
-
-    if near_value and momentum_cooling and smooth:
-        return "HEALTHY"
-
-    if near_value and not momentum_cooling:
-        return "WEAK"
-
-    return "NONE"
+    return False
 
 def classify_market_state(structure, phase):
 
@@ -442,7 +439,7 @@ def detect_trend_pullback(indicators, direction):
     price = close.iloc[-1]
 
     # --- VALUE ZONE ---
-    near_ema20 = abs(price - ema20.iloc[-1]) / price < 0.0035
+    near_ema20 = abs(price - ema20.iloc[-1]) / price < 0.0006
     near_ema50 = abs(price - ema50.iloc[-1]) / price < 0.0045
 
     in_value = near_ema20 or near_ema50
@@ -470,211 +467,170 @@ def detect_trend_pullback(indicators, direction):
 
     return False
 
-def scan_all_markets():
+# ================= NEW DECISION BRAIN =================
 
-    best_trade = None
-    best_score = 0
+def movement_reality(indicators):
+    close = indicators["close"]
+    recent = close.iloc[-6:]
+
+    move = abs(recent.iloc[-1] - recent.iloc[0])
+    noise = recent.diff().abs().sum()
+
+    if noise == 0:
+        return "CHAOTIC"
+
+    smoothness = move / noise
+
+    if smoothness > 0.6:
+        return "CLEAN"
+
+    if smoothness > 0.4:
+        return "MODERATE"
+
+    return "CHAOTIC"
+
+def structural_bias(df):
+
+    highs = df["High"]
+    lows  = df["Low"]
+
+    # 🔒 Ensure Series
+    if isinstance(highs, pd.DataFrame):
+        highs = highs.iloc[:, 0]
+    if isinstance(lows, pd.DataFrame):
+        lows = lows.iloc[:, 0]
+
+    highs = highs.astype(float)
+    lows  = lows.astype(float)
+
+    if len(highs) < 20:
+        return "NEUTRAL"
+
+    recent_high = float(highs.iloc[-5:].max())
+    prior_high  = float(highs.iloc[-20:-10].max())
+
+    recent_low  = float(lows.iloc[-5:].min())
+    prior_low   = float(lows.iloc[-20:-10].min())
+
+    if recent_high > prior_high and recent_low > prior_low:
+        return "BULLISH"
+
+    if recent_high < prior_high and recent_low < prior_low:
+        return "BEARISH"
+
+    return "NEUTRAL"
+
+def environment_strength(indicators):
+
+    adx = indicators["adx"].iloc[-1]
+    atr = indicators["atr"].iloc[-1]
+    atr_avg = indicators["atr"].rolling(20).mean().iloc[-1]
+
+    if adx > 25 and atr > atr_avg:
+        return "STRONG"
+
+    if adx > 18:
+        return "MODERATE"
+
+    return "WEAK"
+
+
+def phase_timing(indicators, bias):
+
+    close = indicators["close"]
+    last = close.iloc[-1]
+    prev = close.iloc[-4]
+
+    if bias == "BULLISH":
+        return "CONTINUATION" if last >= prev else "PULLBACK"
+
+    if bias == "BEARISH":
+        return "CONTINUATION" if last <= prev else "PULLBACK"
+
+    return "NONE"
+
+def detect_breakout(df):
+
+    highs = df["High"]
+    lows = df["Low"]
+    close = df["Close"]
+
+    if isinstance(highs, pd.DataFrame):
+        highs = highs.iloc[:,0]
+    if isinstance(lows, pd.DataFrame):
+        lows = lows.iloc[:,0]
+    if isinstance(close, pd.DataFrame):
+        close = close.iloc[:,0]
+
+    highs = highs.astype(float)
+    lows = lows.astype(float)
+    close = close.astype(float)
+
+    resistance = float(highs.iloc[-20:-3].max())
+    support = float(lows.iloc[-20:-3].min())
+
+    last = float(close.iloc[-1])
+    prev = float(close.iloc[-2])
+
+    # breakout must CLOSE above level
+    if prev <= resistance and last > resistance:
+        return "BREAKOUT_UP"
+
+    if prev >= support and last < support:
+        return "BREAKOUT_DOWN"
+
+    return None
+
+# ===== ADD THIS FUNCTION HERE =====
+
+def detect_market_cycle(df, indicators):
+
+    if df is None or indicators is None or len(df) < 60:
+        return "UNKNOWN"
+
+    close = indicators["close"]
+    adx = indicators["adx"]
+    atr = indicators["atr"]
+
+    adx_now = adx.iloc[-1]
+    adx_prev = adx.iloc[-5]
+
+    atr_now = atr.iloc[-1]
+    atr_avg = atr.rolling(30).mean().iloc[-1]
+
+    highs = df["High"].iloc[-20:]
+    lows = df["Low"].iloc[-20:]
+
+    if isinstance(highs, pd.DataFrame):
+        highs = highs.iloc[:,0]
+    if isinstance(lows, pd.DataFrame):
+        lows = lows.iloc[:,0]
+
+    highs = highs.astype(float)
+    lows = lows.astype(float)
+
+    range_size = highs.max() - lows.min()
+    price = close.iloc[-1]
+
+    tight_range = (range_size / price) < 0.003
+
+    atr_contracting = atr_now < atr_avg * 0.85
+    atr_expanding = atr_now > atr_avg * 1.15
+
+    if adx_now > 25 and not tight_range:
+        return "TREND"
+
+    if adx_now < 20 and atr_contracting and tight_range:
+        return "CONSOLIDATION"
+
+    if adx_now > adx_prev and adx_now < 25 and tight_range:
+        return "PRE_BREAKOUT"
+
+    if atr_expanding and adx_now > 20 and not tight_range:
+        return "EXPANSION"
+
+    return "TRANSITION"
     
-    for asset, symbol in CURRENCIES.items():
-
-        if pair_is_on_cooldown(asset):
-            continue
-    
-        df = fetch(symbol, "5m", "7d")
-        i = indicators(df)
-
-        if df is None or i is None:
-            continue
-
-        state = classify_market_environment(df, i)
-        direction = detect_direction(i)
-
-        # ================= SUPPORT / RESISTANCE =================
-        sr_local = {"support": False, "resistance": False}
-        recent_low  = i["close"].rolling(20).min().iloc[-1]
-        recent_high = i["close"].rolling(20).max().iloc[-1]
-        price = i["close"].iloc[-1]
-
-        if abs(price - recent_low) / price < 0.002:
-            sr_local["support"] = True
-        if abs(price - recent_high) / price < 0.002:
-            sr_local["resistance"] = True
-
-        # ================= MARKET STATE =================
-        personality = detect_market_personality(df, i, sr_local)
-        movement = movement_quality(i)
-        range_mode = is_range_market(i, sr_local)
-        pullback = "NONE"
-
-        # ================= SIGNAL DECISION =================
-        
-        if state == "TREND":
-
-            pullback_ready = detect_trend_pullback(i, direction)
-        
-            if direction == "BULLISH" and pullback_ready:
-                signal, reason, confidence = "BUY", "Trend pullback entry", 85
-        
-            elif direction == "BEARISH" and pullback_ready:
-                signal, reason, confidence = "SELL", "Trend pullback entry", 85
-        
-            else:
-                signal, reason, confidence = "WAIT", "Waiting for pullback", 0
-
-        elif state == "RANGE":
-        
-            rsi = i["rsi"].iloc[-1]
-        
-            if sr_local["support"] and rsi < 40:
-                signal, reason, confidence = "BUY", "Range bounce", 75
-        
-            elif sr_local["resistance"] and rsi > 60:
-                signal, reason, confidence = "SELL", "Range rejection", 75
-        
-            else:
-                signal, reason, confidence = "WAIT", "Range middle", 0
-        
-        elif state == "EXPANSION":
-        
-            if direction == "BULLISH":
-                signal, reason, confidence = "BUY", "Breakout momentum", 85
-        
-            elif direction == "BEARISH":
-                signal, reason, confidence = "SELL", "Breakout momentum", 85
-        
-            else:
-                signal, reason, confidence = "WAIT", "Weak expansion", 0
-    
-        elif state == "TRANSITION":
-        
-            rsi = i["rsi"].iloc[-1]
-        
-            if direction == "BULLISH" and rsi < 45:
-                signal, reason, confidence = "BUY", "Early reversal forming", 70
-        
-            elif direction == "BEARISH" and rsi > 55:
-                signal, reason, confidence = "SELL", "Early reversal forming", 70
-        
-            else:
-                signal, reason, confidence = "WAIT", "No structure shift", 0
-
-        # ================= SCORING =================
-        if signal in ["BUY", "SELL"]:
-
-            score = confidence
-
-            if pullback == "HEALTHY":
-                score += 10
-            
-            if pullback == "WEAK":
-                score -= 15
-
-            if movement == "CLEAN":
-                score += 10
-        
-            if movement == "CHAOTIC":
-                score -= 10
-
-            adx = i["adx"].iloc[-1]
-            atr = i["atr"].iloc[-1]
-            atr_avg = i["atr"].rolling(20).mean().iloc[-1]
-
-            if 22 <= adx <= 35:
-                score += 15
-
-            if adx > 40:
-                score -= 10
-
-            if atr < atr_avg * 1.2:
-                score += 10
-
-            if atr > atr_avg * 1.6:
-                score -= 10
-
-            if personality == "TREND_DOMINANT":
-                score += 5
-
-            if range_mode:
-                score += 10
-
-            # Range timing boost
-            if personality in ["RANGE_BOUND", "MEAN_REVERTING"]:
-                rsi = i["rsi"].iloc[-1]
-                if signal == "BUY" and rsi < 35:
-                    score += 10
-                if signal == "SELL" and rsi > 65:
-                    score += 10
-
-            # ================= BEST TRADE =================
-            if score > best_score:
-
-                last_close = df.index[-1].to_pydatetime()
-                minute = (last_close.minute // 5 + 1) * 5
-                entry_time = last_close.replace(minute=0, second=0, microsecond=0) + timedelta(minutes=minute)
-                expiry_time = entry_time + timedelta(minutes=5)
-
-                best_score = score
-                best_trade = {
-                    "state": state,
-                    "direction": direction,
-                    "asset": asset,
-                    "signal": signal,
-                    "confidence": score,
-                    "personality": personality,
-                    "entry": entry_time.strftime("%H:%M"),
-                    "expiry": expiry_time.strftime("%H:%M")
-                }
-
-    return best_trade
-
-# ================= HEADER =================
-st.markdown("""
-<div class="block">
-<h1>Malagna</h1>
-<div class="metric">20-Rule Dominant Engine • All Markets • True M5</div>
-</div>
-""", unsafe_allow_html=True)
-
-if st.button("Scan Market 🔍"):
-
-    best = scan_all_markets()
-   
-    if best:
-    
-        st.session_state.pair_cooldown[best["asset"]] = datetime.now()
-    
-        signal_class = {
-            "BUY": "signal-buy",
-            "SELL": "signal-sell"
-        }[best["signal"]]
-    
-        st.markdown(f"""
-        <div class="block center">
-            <div class="{signal_class}">{best['signal']}</div>
-            <div class="metric">Best Opportunity: {best['asset']}</div>
-            <div class="metric"><b>Confidence:</b> {best['confidence']}%</div>
-            <div class="small">
-                State: {best['state']} • 
-                Direction: {best['direction']} • 
-                Personality: {best['personality']}
-                🟢 Entry: {best['entry']}<br>
-                🔴 Expiry: {best['expiry']}
-            </div>
-        """, unsafe_allow_html=True)
-
-    else:
-        st.warning("No valid trade found right now. Market may be in cooldown or low quality.")
-
-# ================= USER NOTE =================
-st.markdown("""
-<div class="block small">
-⚠️ <b>Important Note</b><br>
-Signals are generated using <b>M5 price action only</b>.<br>
-Always confirm with your own analysis, trend context, and risk management.<br>
-This tool supports decisions — it does not replace them.
-</div>
-""", unsafe_allow_html=True)
-
 # ================= DATA =================
 
 def forex_factory_red_news(currencies, window_minutes=30):
@@ -725,3 +681,221 @@ def forex_factory_red_news(currencies, window_minutes=30):
 
     return False
 
+def scan_all_markets():
+
+    best_trade = None
+
+    for asset, symbol in CURRENCIES.items():
+
+        if pair_is_on_cooldown(asset):
+            continue
+
+        # ===== NEWS FILTER =====
+        base, quote = asset.split("/")
+        if forex_factory_red_news([base, quote]):
+            continue
+
+        # ===== HIGHER TIMEFRAME (H1) =====
+        df_h1 = fetch(symbol, "1h", "30d")
+        i_h1 = indicators(df_h1)
+
+        if df_h1 is None or df_h1.empty or i_h1 is None:
+            continue
+
+        htf_direction = detect_direction(i_h1)
+
+        if htf_direction == "NEUTRAL":
+            continue
+
+        # ===== M5 =====
+        df = fetch(symbol, "5m", "3d")
+        i = indicators(df)
+
+        if df is None or df.empty or i is None:
+            continue
+      
+        cycle = detect_market_cycle(df, i)
+        m5_direction = detect_direction(i)
+
+        if htf_direction == "NEUTRAL":
+            continue
+
+        adx = i["adx"].iloc[-1]
+        breakout = detect_breakout(df)
+        movement = movement_reality(i)
+
+        if movement not in ["CLEAN", "MODERATE"]:
+            continue
+        
+        pullback_ready = detect_trend_pullback(i, m5_direction)
+
+        signal = None
+        confidence = 0
+        reason = ""
+
+        # ===== ENTRY LOGIC =====
+        
+        if cycle == "TREND":
+        
+            if pullback_ready:
+                signal = "BUY" if m5_direction == "BULLISH" else "SELL"
+                confidence = 90
+                reason = "Trend pullback entry"
+        
+            elif m5_direction == "BULLISH":
+                signal = "BUY"
+                confidence = 70
+                reason = "Trend continuation"
+        
+            elif m5_direction == "BEARISH":
+                signal = "SELL"
+                confidence = 70
+                reason = "Trend continuation"
+    
+        elif cycle == "CONSOLIDATION":
+        
+            highs = df["High"]
+            lows = df["Low"]
+            
+            # Fix yfinance multi-column issue
+            if isinstance(highs, pd.DataFrame):
+                highs = highs.iloc[:,0]
+            
+            if isinstance(lows, pd.DataFrame):
+                lows = lows.iloc[:,0]
+            
+            highs = highs.astype(float).iloc[-20:]
+            lows = lows.astype(float).iloc[-20:]
+            resistance = float(highs.max())
+            support = float(lows.min())
+            
+            price = float(i["close"].iloc[-1])
+            
+            if price <= support * 1.002:
+                signal = "BUY"
+                confidence = 75
+                reason = "Range support bounce"
+        
+            elif price >= resistance * 0.998:
+                signal = "SELL"
+                confidence = 75
+                reason = "Range resistance bounce"
+        
+        elif cycle == "EXPANSION":
+        
+            if breakout == "BREAKOUT_UP":
+                signal = "BUY"
+                confidence = 85
+                reason = "Range breakout"
+        
+            elif breakout == "BREAKOUT_DOWN":
+                signal = "SELL"
+                confidence = 85
+                reason = "Range breakout"
+        
+        elif cycle == "PRE_BREAKOUT":
+
+            if breakout == "BREAKOUT_UP":
+                signal = "BUY"
+                confidence = 80
+                reason = "Pre-breakout expansion"
+        
+            elif breakout == "BREAKOUT_DOWN":
+                signal = "SELL"
+                confidence = 80
+                reason = "Pre-breakout expansion"
+
+        elif cycle == "TRANSITION":
+
+            if breakout == "BREAKOUT_UP":
+                signal = "BUY"
+                confidence = 70
+                reason = "Transition breakout"
+        
+            elif breakout == "BREAKOUT_DOWN":
+                signal = "SELL"
+                confidence = 70
+                reason = "Transition breakout"
+
+       # ===== HTF CONTEXT ADJUSTMENT =====
+
+        if signal:
+        
+            if signal == "BUY" and htf_direction == "BULLISH":
+                confidence += 10
+        
+            elif signal == "SELL" and htf_direction == "BEARISH":
+                confidence += 10
+        
+            else:
+                confidence -= 10
+
+        if signal:
+
+            last_close = df.index[-1].to_pydatetime()
+            minute = (last_close.minute // 5 + 1) * 5
+            entry_time = last_close.replace(minute=0, second=0, microsecond=0) + timedelta(minutes=minute)
+            expiry_time = entry_time + timedelta(minutes=5)
+
+            best_trade = {
+                "state": cycle,
+                "direction": m5_direction,
+                "asset": asset,
+                "signal": signal,
+                "confidence": confidence,
+                "personality": reason,
+                "entry": entry_time.strftime("%H:%M"),
+                "expiry": expiry_time.strftime("%H:%M")
+            }
+
+            break  # First valid trade only
+
+    return best_trade
+
+# ================= HEADER =================
+st.markdown("""
+<div class="block">
+<h1>Malagna</h1>
+<div class="metric">20-Rule Dominant Engine • All Markets • True M5</div>
+</div>
+""", unsafe_allow_html=True)
+
+if st.button("Scan Market 🔍"):
+
+    best = scan_all_markets()
+   
+    if best:
+    
+        st.session_state.pair_cooldown[best["asset"]] = datetime.now()
+    
+        signal_class = {
+            "BUY": "signal-buy",
+            "SELL": "signal-sell"
+        }[best["signal"]]
+    
+        st.markdown(f"""
+        <div class="block center">
+            <div class="{signal_class}">{best['signal']}</div>
+            <div class="metric">Best Opportunity: {best['asset']}</div>
+            <div class="metric"><b>Confidence:</b> {best['confidence']}%</div>
+            <div class="small">
+                State: {best['state']} • 
+                Direction: {best['direction']} • 
+                Personality: {best['personality']}
+                🟢 Entry: {best['entry']}<br>
+                🔴 Expiry: {best['expiry']}
+            </div>
+        """, unsafe_allow_html=True)
+
+    else:
+        st.warning("No valid trade found right now. Market may be in cooldown or low quality.")
+
+# ================= USER NOTE =================
+st.markdown("""
+<div class="block small">
+⚠️ <b>Important Note</b><br>
+Signals are generated using <b>M5 price action only</b>.<br>
+Always confirm with your own analysis, trend context, and risk management.<br>
+This tool supports decisions — it does not replace them.
+</div>
+""", unsafe_allow_html=True)
